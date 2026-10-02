@@ -271,19 +271,27 @@ def test_needs_review_event_lists_each_invalidated_human_record(store):
 
 
 def test_lead_actions_keep_actor_and_close_even_when_origin_candidate_disappears(store):
+    from aml_qc.workflow import extract_local
+    from test_model_safety import ScriptedModel, json_message, semantic_response
     state = create(store); cid = state['package']['case_id']
-    result = run_review(state['package'],provider='local')
-    result['issues'].append({'issue_id':'new-lead-1','type':'new_lead','target_id':'observed-new-lead','title':'新增待研判线索','evidence':[],'severity':'notice'})
-    store.save_run(cid,state['source_hash'],result)
-    upgraded = store.review(cid,action='upgrade_lead',target_id='new-lead-1',reason='请追加核对新增线索',actor='special-reviewer')
+    semantic = semantic_response(state['package'])
+    semantic['leads'] = [{'question':'经营范围是否需补充说明？', 'observation':'经营资料包含经营范围，建议人工核对说明。',
+                          'basis_refs':['document:kyc']}]
+    model = ScriptedModel([json_message(extract_local(state['package'])), json_message(semantic)])
+    result = run_review(state['package'],provider='frozen',model=model)
+    state = store.save_run(cid,state['source_hash'],result)
+    issue_id = next(i['issue_id'] for i in result['issues'] if i['type']=='new_lead')
+    upgraded = store.review(cid,action='upgrade_lead',target_id=issue_id,reason='请追加核对新增线索',actor='special-reviewer',
+                            snapshot_id=state['latest_run']['snapshot_id'],expected_event_id=None)
     event = next(e for e in reversed(upgraded['review_events']) if e['action']=='source_changed')
     assert event['actor']=='special-reviewer'
     assert event['context']['review_action']=='upgrade_lead'
-    assert event['context']['target_id']=='new-lead-1'
-    assert upgraded['package']['review_scope']['upgraded_leads'][0]['origin_issue_id']=='new-lead-1'
+    assert event['context']['target_id']==issue_id
+    assert upgraded['package']['review_scope']['upgraded_leads'][0]['origin_issue_id']==issue_id
     refreshed = run_current(store,cid)
-    assert all(i['issue_id']!='new-lead-1' for i in refreshed['latest_run']['issues'])
-    closed = store.review(cid,action='close_lead',target_id='new-lead-1',reason='复核后关闭现存升级线索',actor='second-reviewer')
+    assert all(i['issue_id']!=issue_id for i in refreshed['latest_run']['issues'])
+    closed = store.review(cid,action='close_lead',target_id=issue_id,reason='复核后关闭现存升级线索',actor='second-reviewer',
+                         snapshot_id=refreshed['latest_run']['snapshot_id'],expected_event_id=refreshed['lead_dispositions'][0]['expected_event_id'])
     assert closed['package']['review_scope']['upgraded_leads']==[]
     event = next(e for e in reversed(closed['review_events']) if e['action']=='source_changed')
     assert event['actor']=='second-reviewer' and event['context']['review_action']=='close_lead'

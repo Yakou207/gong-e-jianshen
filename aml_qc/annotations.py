@@ -215,6 +215,11 @@ def validate_evidence(package, evidence, known_evidence):
                     continue
                 except (KeyError, TypeError):
                     pass
+        if is_known and kind == 'upgraded_focus':
+            focus = next((item for item in package.get('review_scope', {}).get('upgraded_leads', [])
+                          if item.get('focus_id') == ref.get('focus_id')), None)
+            if focus and ref.get('content_hash') == digest(focus):
+                continue
         if is_known and kind in {'query_scope', 'material_set', 'material_link', 'transaction_set', 'alert_focus'}:
             # These structured computation/scope references must match an exact
             # frozen server-produced reference. Clients cannot create them.

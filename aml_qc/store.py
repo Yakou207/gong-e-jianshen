@@ -10,8 +10,9 @@ from .annotations import annotation_pending, apply_reviews, build_annotations, p
 from .core import check_coverage
 from .depgraph import canonical, digest
 from .ingest import validate_case
+from .leads import lead_context_hash
 from . import migrations
-from .workflow import IMPLEMENTATION_HASH, default_schema
+from .workflow import IMPLEMENTATION_HASH, default_schema, focus_evidence
 
 
 def now():
@@ -26,6 +27,48 @@ def audit_integrity(events):
             return {"valid": False, "checked_events": index, "broken_event_id": event.get("event_id")}
         previous = event["event_hash"]
     return {"valid": True, "checked_events": len(events), "last_hash": previous}
+
+
+def lead_disposition_records(package, candidates, historical_candidates=(), execution=None):
+    """Keep original observations visible even after a model stops proposing them."""
+    scope = package.get("review_scope", {})
+    context_hash = lead_context_hash(package)
+    current = {candidate["lead_id"]: candidate for candidate in candidates
+               if candidate.get("context_hash") == context_hash}
+    observed = {candidate["lead_id"]: candidate for candidate in historical_candidates}
+    observed.update({candidate["lead_id"]: candidate for candidate in candidates})
+    histories = {}
+    for record in scope.get("lead_dispositions", []):
+        histories.setdefault(record["lead_id"], []).append(record)
+    active = {}
+    for focus in scope.get("upgraded_leads", []):
+        lead_id = focus.get("lead_id") or "legacy-" + digest(focus)[:16]
+        active[lead_id] = focus
+    records = []
+    for lead_id in sorted(observed.keys() | histories.keys() | active.keys()):
+        history = histories.get(lead_id, [])
+        disposition = history[-1] if history else None
+        focus = active.get(lead_id)
+        candidate = current.get(lead_id) or (disposition or {}).get("candidate") or observed.get(lead_id) or {
+            "lead_id": lead_id, "question": focus.get("text", "历史升级线索"),
+            "observation": "旧版升级记录；原候选请见历史运行。", "evidence": [],
+            "legacy": True,
+        }
+        valid = bool(disposition and execution and disposition.get("context_hash") == context_hash
+                     and disposition.get("execution_fingerprint") == digest(execution)
+                     and (lead_id not in current or disposition.get("basis_fingerprint") == current[lead_id].get("basis_fingerprint")))
+        status = "upgraded" if focus else disposition["status"] if valid else "candidate" if lead_id in current else "needs_review"
+        actions = (["close_lead"] if focus else [] if valid and status == "closed"
+                   else ["upgrade_lead", "close_lead"] if lead_id in current else [])
+        records.append({"lead_id": lead_id, "candidate": candidate,
+            "question": candidate.get("question", ""), "observation": candidate.get("observation", ""),
+            "evidence": candidate.get("evidence", []), "history": history, "disposition": disposition,
+            "status": status, "current_valid": valid, "candidate_current": lead_id in current,
+            "source_current": candidate.get("context_hash") == context_hash,
+            "expected_event_id": (disposition or {}).get("event_id"),
+            "focus_id": focus.get("focus_id") if focus else None,
+            "origin_issue_id": (focus or {}).get("origin_issue_id"), "allowed_actions": actions})
+    return records
 
 
 class Store:
@@ -58,6 +101,8 @@ class Store:
         package = deepcopy(package)
         package.setdefault("schema", default_schema())
         self.validate(package)
+        if any(package.get("review_scope", {}).get(key) for key in ("lead_dispositions", "upgraded_leads")):
+            raise ValueError("导入不可携带人工线索处置；请在当前快照执行升级或关闭")
         package["transactions"] = list({r["transaction_id"]: r for r in package.get("transactions", [])}.values())
         source_hash = digest(package)
         with self.connect() as db:
@@ -117,6 +162,9 @@ class Store:
                       for e in db.execute("SELECT * FROM events WHERE case_id=? ORDER BY seq", (case_id,))]
             history = [{"run_id": r["run_id"], "source_hash": r["source_hash"], "created_at": r["created_at"]}
                        for r in db.execute("SELECT run_id,source_hash,created_at FROM runs WHERE case_id=? ORDER BY created_at DESC", (case_id,))]
+            historical_candidates = [candidate for r in db.execute(
+                "SELECT result FROM runs WHERE case_id=? ORDER BY created_at", (case_id,))
+                for candidate in json.loads(r["result"]).get("lead_candidates", [])]
         engine_changed = bool(run and run.get("execution") and
                               run["execution"].get("implementation_hash") != IMPLEMENTATION_HASH)
         stale = bool(run and (run["source_hash"] != row["source_hash"] or engine_changed))
@@ -170,10 +218,16 @@ class Store:
         status = "needs_review" if stale else "本次质检范围内通过" if can_pass and final_confirmation_current and task.get("action") in {"confirm", "reconfirm"} else "disputed" if disputes else "待人工复核"
         if run:
             run["review_status"] = status
+        leads = lead_disposition_records(package, (run or {}).get("lead_candidates", []), historical_candidates,
+                                         None if engine_changed else (run or {}).get("execution"))
+        if stale or not integrity["valid"] or not run:
+            for lead in leads:
+                lead["allowed_actions"] = []
         return {"package": package, "source_hash": row["source_hash"], "latest_run": run, "stale": stale,
                 "review_events": events, "open_items": open_items, "pending_checks": pending_checks,
                 "review_status": status, "can_pass": can_pass, "history": history, "audit_integrity": integrity,
                 "engine_changed": engine_changed, "annotations": annotations,
+                "lead_dispositions": leads,
                 "annotation_pending": label_pending, "annotation_pending_count": len(label_pending)}
 
     def change_source(self, case_id, package, reason, *, actor="operator", context=None):
@@ -181,6 +235,11 @@ class Store:
             raise ValueError("修改来源必须记录原因和人员")
         old = self.get(case_id)
         package = deepcopy(package)
+        if not isinstance(package.get("review_scope", {}), dict):
+            raise ValueError("review_scope必须为对象")
+        for key in ("lead_dispositions", "upgraded_leads"):
+            if package.get("review_scope", {}).get(key, []) != old["package"].get("review_scope", {}).get(key, []):
+                raise ValueError("线索处置和升级范围只能通过当前快照的人工升级或关闭动作修改")
         package.setdefault("schema", old["package"]["schema"])
         if package.get("schema_version") != old["package"]["schema_version"] or digest(package["schema"]) != digest(old["package"]["schema"]):
             raise ValueError("Schema规范内容或版本变化须先生成迁移预览并逐案执行，不能通过普通来源修订绕过")
@@ -287,32 +346,11 @@ class Store:
         if action not in allowed:
             raise ValueError("未知人工动作")
         issues = {i["issue_id"]: i for i in run.get("issues", [])}
-        existing_leads = state["package"].get("review_scope", {}).get("upgraded_leads", [])
-        def refers_to_lead(lead):
-            return (target_id in {lead.get("origin_issue_id"), lead.get("focus_id"), "semantic:" + str(lead.get("focus_id"))}
-                    or issues.get(target_id, {}).get("target_id") == "semantic:" + str(lead.get("focus_id")))
-        closing_existing_lead = action == "close_lead" and any(refers_to_lead(lead) for lead in existing_leads)
-        if target_id != "task" and target_id not in issues and not closing_existing_lead:
-            raise ValueError("人工裁决对象不属于当前快照")
         if action in {"upgrade_lead", "close_lead"}:
-            if target_id == "task":
-                raise ValueError("线索操作必须指定具体线索")
-            package = deepcopy(state["package"])
-            leads = package.setdefault("review_scope", {}).setdefault("upgraded_leads", [])
-            if action == "upgrade_lead":
-                if issues[target_id].get("type") != "new_lead":
-                    raise ValueError("只有新增线索候选可以升级为应回应事项")
-                if any(lead.get("origin_issue_id") == target_id for lead in leads):
-                    raise ValueError("该线索已经升级")
-                leads.append({"focus_id": "lead-" + digest([target_id, reason])[:12], "text": reason, "origin_issue_id": target_id})
-            else:
-                kept = [lead for lead in leads if not refers_to_lead(lead)]
-                if len(kept) == len(leads):
-                    raise ValueError("当前对象没有已升级线索")
-                package["review_scope"]["upgraded_leads"] = kept
-            return self.change_source(case_id, package, action + ": " + reason, actor=actor,
-                                      context={"review_action": action, "target_id": target_id,
-                                               "snapshot_id": run["snapshot_id"], "source_hash": state["source_hash"]})
+            return self._review_lead(state, action=action, target_id=target_id, reason=reason, actor=actor,
+                                     snapshot_id=snapshot_id, expected_event_id=expected_event_id)
+        if target_id != "task" and target_id not in issues:
+            raise ValueError("人工裁决对象不属于当前快照")
         if target_id == "task":
             if action not in {"confirm", "reconfirm", "dispute", "request_correction", "close_item"}:
                 raise ValueError("该动作不适用于整个任务")
@@ -342,6 +380,70 @@ class Store:
             self._event(db, case_id, {"action": action, "target_id": target_id, "reason": reason, "actor": actor,
                         "resolution": resolution, "snapshot_id": run["snapshot_id"], "source_hash": state["source_hash"],
                         "evidence": issues.get(target_id, {}).get("evidence", [])})
+        return self.get(case_id)
+
+    def _review_lead(self, state, *, action, target_id, reason, actor, snapshot_id, expected_event_id):
+        run = state["latest_run"]
+        if target_id == "task":
+            raise ValueError("线索操作必须指定具体线索")
+        issue = next((i for i in run.get("issues", []) if i["issue_id"] == target_id
+                      or i.get("lead_id") == target_id.removeprefix("lead:")), {})
+        lead = next((item for item in state["lead_dispositions"] if
+            target_id in {item["lead_id"], "lead:" + item["lead_id"], item.get("focus_id"),
+                          item.get("origin_issue_id"), "semantic:" + str(item.get("focus_id"))}
+            or issue.get("lead_id") == item["lead_id"]
+            or (item.get("focus_id") and issue.get("target_id") == "semantic:" + item["focus_id"])), None)
+        if not lead:
+            raise ValueError("只有新增线索候选或现存升级线索可以执行线索处置")
+        if snapshot_id != run["snapshot_id"]:
+            raise ValueError("线索裁决必须绑定当前快照，请刷新后重试")
+        if expected_event_id != lead["expected_event_id"]:
+            raise ValueError("线索已被其他人员处置，请刷新后重试")
+        if action not in lead["allowed_actions"]:
+            raise ValueError("该线索当前状态不允许此动作，请重查或刷新")
+        package = deepcopy(state["package"])
+        scope = package.setdefault("review_scope", {})
+        focus_id = lead.get("focus_id") or "focus-" + lead["lead_id"]
+        original_focus = next((f for f in scope.get("upgraded_leads", []) if f["focus_id"] == focus_id), None)
+        decision_evidence = ([focus_evidence(state["package"], original_focus)]
+                             if original_focus else deepcopy(lead["evidence"]))
+        origin_source_hash = (state["source_hash"] if lead["candidate_current"] else
+                              (original_focus or {}).get("candidate_source_hash") or
+                              (lead["disposition"] or {}).get("origin_source_hash"))
+        origin_snapshot_id = (snapshot_id if lead["candidate_current"] else
+                              (original_focus or {}).get("candidate_snapshot_id") or
+                              (lead["disposition"] or {}).get("origin_snapshot_id"))
+        if action == "upgrade_lead":
+            scope.setdefault("upgraded_leads", []).append({"focus_id": focus_id,
+                "text": lead["candidate"]["question"], "lead_id": lead["lead_id"],
+                "origin_issue_id": issue.get("issue_id"), "candidate": deepcopy(lead["candidate"]),
+                "candidate_source_hash": origin_source_hash, "candidate_snapshot_id": origin_snapshot_id})
+        else:
+            scope["upgraded_leads"] = [f for f in scope.get("upgraded_leads", []) if f["focus_id"] != focus_id]
+        record = {"event_id": uuid4().hex, "created_at": now(), "lead_id": lead["lead_id"], "action": action,
+            "status": "upgraded" if action == "upgrade_lead" else "closed", "focus_id": focus_id,
+            "candidate": deepcopy(lead["candidate"]), "basis_fingerprint": lead["candidate"].get("basis_fingerprint"),
+            "execution_fingerprint": digest(run.get("execution", {})),
+            "context_hash": lead_context_hash(package), "actor": actor, "reason": reason,
+            "snapshot_id": snapshot_id, "run_id": run["run_id"], "source_hash": state["source_hash"],
+            "previous_event_id": expected_event_id, "evidence": decision_evidence,
+            "origin_evidence": deepcopy(lead["evidence"]), "origin_source_hash": origin_source_hash,
+            "origin_snapshot_id": origin_snapshot_id}
+        scope.setdefault("lead_dispositions", []).append(record)
+        package["data_version"] = str(int(package["data_version"]) + 1) if str(package["data_version"]).isdigit() else uuid4().hex[:12]
+        self.validate(package)
+        case_id = package["case_id"]
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute("SELECT source_hash,current_run FROM cases WHERE case_id=?", (case_id,)).fetchone()
+            latest = db.execute("SELECT event_hash FROM events WHERE case_id=? ORDER BY seq DESC LIMIT 1", (case_id,)).fetchone()
+            if current[0] != state["source_hash"] or current[1] != run["run_id"] or (latest[0] if latest else None) != (state["review_events"][-1]["event_hash"] if state["review_events"] else None):
+                raise ValueError("来源、运行或人工记录已改变，请刷新后重新裁决")
+            self._write_source_change(db, state, package, action + ": " + reason, actor,
+                {"review_action": action, "target_id": target_id, "snapshot_id": snapshot_id,
+                 "source_hash": state["source_hash"], "lead_id": lead["lead_id"]})
+            self._event(db, case_id, {**record, "action": action, "target_id": "lead:" + lead["lead_id"],
+                "old_value": lead["status"], "new_value": record["status"], "new_source_hash": digest(package)})
         return self.get(case_id)
 
     def export(self, case_id):
@@ -374,10 +476,12 @@ class Store:
                                 "confirmed_issues": confirmed if state["review_status"] == "本次质检范围内通过" else [],
                                 "annotations": final_annotations
                                     if state["review_status"] == "本次质检范围内通过" else [],
+                                "lead_dispositions": state["lead_dispositions"],
                                 "passed": state["review_status"] == "本次质检范围内通过"},
                 "candidates_and_open_items": {"run": run, "open_items": state["open_items"], "stale": state["stale"],
                                               "current_confirmed_issues": confirmed},
                 "annotations": state["annotations"], "annotation_pending": state["annotation_pending"],
+                "lead_dispositions": state["lead_dispositions"],
                 "review_events": state["review_events"], "history": state["history"],
                 "historical_sources": historical_sources, "historical_runs": historical_runs,
                 "schema_migrations": {"previews":migration_previews,"receipts":migration_receipts},

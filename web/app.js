@@ -2,7 +2,7 @@
 
 const state = {
   cases: [], config: {}, detail: null, caseId: null, view: "tasks", sourceTab: "narrative",
-  evidence: null, reviewTarget: null, provider: "local", mode: "fixed", busy: false,
+  evidence: null, reviewTarget: null, reviewAction: "confirm", provider: "local", mode: "fixed", busy: false,
   editorMode: "source", editorPackage: null, editorSection: "all", loadSerial: 0,
   annotationTarget: null, annotationEvidence: [], resultTab: "issues",
   migration: { open: false, catalog: [], baseHash: "", draft: "", reason: "", actor: "质检员", preview: null, selected: [], error: "", loading: false, requiresRefresh: false },
@@ -26,7 +26,7 @@ const dictionary = {
   manual_focus: "回应待人工判断", manual_material: "材料关系待人工判断", manual_extraction: "抽取完整性待核对", material_insufficient: "材料不足", claim_unresolved: "事实待核验", insufficient_coverage: "覆盖不足", execution_failed: "执行失败", missing_alert: "缺少原预警", candidate: "候选待确认", source_changed: "来源已修订",
   confirmed: "问题已确认", rejected: "已驳回", open: "待处理", resolved: "已解决", closed: "已关闭", revoked: "已撤销", high: "高", medium: "中", low: "低", warning: "提示",
   confirm: "确认候选 / 完成任务", reject: "驳回候选", reconfirm: "重新确认", close_item: "裁决未决事项", upgrade_lead: "升级新增线索", close_lead: "关闭新增线索", not_applicable: "不适用",
-  fixed: "固定流程", agent: "Agent 动态取证", local: "确定性演示", deepseek: "DeepSeek", incremental: "增量重查", success: "成功", ok: "成功", passed: "通过", valid: "有效",
+  fixed: "固定流程", agent: "Agent 动态取证", local: "确定性演示", frozen: "离线冻结响应", deepseek: "DeepSeek", incremental: "增量重查", success: "成功", ok: "成功", passed: "通过", valid: "有效",
   count: "次数", amount_sum: "金额合计", counterparty: "对手对象", time_range: "时间范围", narrative: "处置理由", kyc: "客户资料", in: "转入", out: "转出", incoming: "转入", outgoing: "转出",
   feature: "交易特征", claim: "事实核验", semantic: "疑点回应", material: "材料关系", alert_response: "疑点回应", material_relation: "材料关系", revised: "已人工修订", amended: "已人工修订", abstained: "已弃标", abstain: "弃标 / 无法裁决", amend: "修订标签", manual_override: "人工修订", human: "人工", deterministic: "确定性计算",
   machine_candidate: "运行候选", human_confirmation: "人工确认", human_judgement: "人工语义判断", human_extraction_reverified: "人工抽取修订后重核",
@@ -95,6 +95,8 @@ const casePath = suffix => `/api/cases/${encodeURIComponent(state.caseId)}${suff
 const pkg = () => state.detail?.package || state.detail?.case || {};
 const run = () => state.detail?.latest_run || {};
 const issues = () => list(run().issues);
+const leadDispositions = () => list(state.detail?.lead_dispositions);
+const reviewLead = targetId => leadDispositions().find(lead => lead.lead_id === targetId || lead.candidate?.issue_id === targetId);
 const openItems = () => list(first(state.detail?.open_items, run().open_items)).filter(item => !["closed", "resolved", "revoked"].includes(item.status));
 const reviews = () => list(state.detail?.review_events);
 const annotations = () => list(state.detail?.annotations);
@@ -216,7 +218,7 @@ function documents() {
   return [p.narrative ? { document_id: "narrative", type: "narrative", text: typeof p.narrative === "string" ? p.narrative : p.narrative.text } : null, p.kyc ? { document_id: "kyc", type: "kyc", text: typeof p.kyc === "string" ? p.kyc : p.kyc.text } : null].filter(Boolean);
 }
 function documentText(document) { return first(document.text, document.content, ""); }
-function textWithSpan(text, document) {
+function textWithSpan(text, sourceDocument) {
   const paragraph = node("p", "narrative-text");
   const characters = Array.from(text);
   const evidence = state.evidence;
@@ -224,9 +226,10 @@ function textWithSpan(text, document) {
   const span = source?.span;
   const start = Array.isArray(span) ? span[0] : first(span?.start, source?.start);
   const end = Array.isArray(span) ? span[1] : first(span?.end, source?.end);
-  const sameDocument = source?.document_id === document.document_id;
-  const sameRevision = source?.revision === undefined || String(source.revision) === String(document.revision);
-  if (sameDocument && sameRevision && Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start && end <= characters.length) append(paragraph, document.createTextNode(characters.slice(0, start).join("")), node("mark", "text-highlight", characters.slice(start, end).join("")), document.createTextNode(characters.slice(end).join("")));
+  const sameDocument = source?.document_id === sourceDocument.document_id;
+  const sameRevision = source?.revision === undefined || String(source.revision) === String(sourceDocument.revision);
+  const sameText = source?.text === undefined || source.text === characters.slice(start, end).join("");
+  if (sameDocument && sameRevision && sameText && Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start && end <= characters.length) append(paragraph, document.createTextNode(characters.slice(0, start).join("")), node("mark", "text-highlight", characters.slice(start, end).join("")), document.createTextNode(characters.slice(end).join("")));
   else paragraph.textContent = text;
   return paragraph;
 }
@@ -250,6 +253,13 @@ function sourcePanel() {
     const alert = typeof a === "string" ? a : first(a?.original_focus, a?.focus_text, a?.text, a?.description, a?.original_text, a?.focus, a?.focus_points);
     const alertText = typeof alert === "string" ? alert : alert ? json(alert) : a ? json(a) : "未提供原始预警。预警理由复核任务需补充预警后完成相关检查。";
     content.append(append(node("div", "source-block"), node("div", "field-caption", `原始预警${a?.alert_id ? ` · ${a.alert_id}` : ""}`), node("div", "alert-box", alertText)));
+    const upgraded = list(p.review_scope?.upgraded_leads);
+    upgraded.forEach(focus => {
+      const block = node("div", `source-block ${state.evidence?.type === "upgraded_focus" && state.evidence.focus_id === focus.focus_id ? "lead-focus-highlight" : ""}`);
+      append(block, node("div", "field-caption", `人工升级关注点 · ${compact(focus.focus_id)}`), node("div", "alert-box", focus.text || focus.question || "请核对完整升级记录"));
+      const details = node("details", "source-details"); append(details, node("summary", "", "查看升级来源与处置依据"), pretty(focus)); block.append(details); content.append(block);
+    });
+    if (state.evidence?.type === "upgraded_focus" && !upgraded.some(focus => focus.focus_id === state.evidence.focus_id)) content.append(node("p", "lead-boundary", "引用的升级关注点已不在当前应回应范围；请在导出包的历史来源中核对。"));
     documents().forEach(document => {
       const block = node("div", "source-block");
       append(block, node("div", "field-caption", `${label(document.type || document.document_id || "文档")} · ${document.document_id || "未标识"} / ${compact(document.revision)}`), textWithSpan(String(documentText(document)), document)); content.append(block);
@@ -296,10 +306,10 @@ function locateEvidence(evidence) {
   state.evidence = evidence;
   if (evidenceTransactionIds(evidence).length) state.sourceTab = "transactions";
   else if (evidence?.material_id || evidence?.type === "material") state.sourceTab = "materials";
-  else if (evidence?.document_id || evidence?.source?.document_id || evidence?.type === "document") state.sourceTab = "narrative";
+  else if (evidence?.document_id || evidence?.source?.document_id || ["document", "upgraded_focus"].includes(evidence?.type)) state.sourceTab = "narrative";
   else state.sourceTab = "coverage";
-  renderDetail();
-  const highlight = $(".transaction-row.highlight, .document-card.highlight, .text-highlight");
+  if (state.view === "delivery") setView("workspace"); else renderDetail();
+  const highlight = $(".transaction-row.highlight, .document-card.highlight, .text-highlight, .lead-focus-highlight");
   highlight?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 function evidenceLinks(value) {
@@ -312,6 +322,8 @@ function evidenceLinks(value) {
 function evidenceTitle(reference, index = 0) {
   if (typeof reference === "string") return reference;
   if (reference?.type === "query_scope" && reference.scope?.start && reference.scope?.end) return `流水 ${reference.scope.start.slice(5, 10)} → ${reference.scope.end.slice(5, 10)}`;
+  if (reference?.type === "tool_result") return `工具返回 · ${compact(reference.result_ref)}`;
+  if (reference?.type === "upgraded_focus") return `人工升级关注点 · ${compact(reference.focus_id)}`;
   return first(reference?.transaction_id, reference?.material_id, reference?.document_id, reference?.query_id, reference?.query_scope_id, reference?.node_id, reference?.ref, reference?.type, `证据 ${index + 1}`);
 }
 function resultPanel() {
@@ -320,7 +332,8 @@ function resultPanel() {
   const warnings = list(run().warnings);
   warnings.forEach(warning => body.append(node("div", "stale-banner", typeof warning === "string" ? warning : json(warning))));
   const issueList = node("div", "issue-list");
-  issues().forEach((issue, index) => {
+  const ordinaryIssues = issues().filter(issue => issue.type !== "new_lead");
+  ordinaryIssues.forEach((issue, index) => {
     const item = node("article", `issue-card ${state.reviewTarget === issue.issue_id ? "selected" : ""}`);
     append(item, append(node("div", "issue-top"), badge(issue.type || "待核实问题"), node("span", "issue-number", `#${String(index + 1).padStart(2, "0")}`)), node("h3", "", issue.title || label(issue.type)), node("p", "issue-description", label(first(issue.description, issue.reason, "请结合引用证据人工核对。"))), evidenceLinks(issue.evidence));
     if (issue.type === "unsupported_explanation") item.append(node("p", "review-disclaimer", "模型候选，需人工核对。材料字段是否对应与解释的支持依据是否充分，须分别判断；确定性核验结果见下方明细。"));
@@ -331,7 +344,7 @@ function resultPanel() {
     issueList.append(item);
   });
   body.append(issueList);
-  if (!issues().length) body.append(node("div", "inline-empty", "本次运行未生成确定问题。仍需核对必需检查、未决事项及资料覆盖，不自动表示质检通过。"));
+  if (!ordinaryIssues.length) body.append(node("div", "inline-empty", "本次运行未生成阻断问题候选。仍需核对必需检查、未决事项及资料覆盖，不自动表示质检通过。"));
   const features = list(run().features);
   if (features.length) {
     const section = append(node("div", "result-section"), node("h3", "", "交易形态 · 不是犯罪认定"));
@@ -352,7 +365,38 @@ function resultPanel() {
       append(detail, node("summary", "", `${label(result.result || result.execution_status)} · ${first(claim?.text, result.claim_id, result.material_id, result.link_id, "支持关系")}`), pretty(result), evidenceLinks(result.evidence)); section.append(detail);
     }); body.append(section);
   }
-  return panel("问题与证据", `${issues().length} 条候选问题`, body);
+  return panel("问题与证据", `${ordinaryIssues.length} 条问题候选`, body);
+}
+function leadPanel() {
+  const records = leadDispositions();
+  if (!records.length) return null;
+  const body = append(node("div", "section-body"), node("p", "annotation-intro", "新观察先提示，未升级时不新增应回应义务。升级后须重查并核对回应；关闭理由与历史观察仍保留在审查记录中。"));
+  records.forEach(lead => {
+    const names = { candidate: "观察提示 · 尚未升级", upgraded: "已升级 · 本案需回应", closed: "已关闭 · 保留记录", needs_review: "旧处置待复核" };
+    const card = node("article", `lead-card ${lead.status === "upgraded" ? "upgraded" : ""}`);
+    card.dataset.leadId = lead.lead_id;
+    const originNote = lead.candidate?.origin === "model_candidate" ? "观察与问题为模型草稿。引用绑定可核对，但是否属于新疑点及其业务意义尚未经人工确认。" : "历史观察的原始出处请展开核对；本记录本身不证明观察成立或业务含义已确认。";
+    append(card, append(node("div", "issue-top"), node("h3", "", lead.question || lead.candidate?.question || "待人工研判的新观察"), badge(names[lead.status] || label(lead.status))), node("p", "issue-description", lead.observation || lead.candidate?.observation || "请结合来源核对该观察。"), node("p", "review-disclaimer", originNote), evidenceLinks(lead.evidence || lead.candidate?.evidence));
+    if (isStale()) card.append(node("p", "lead-boundary", "当前来源或执行版本待重查，以下观察与处置仅供历史核对。"));
+    else if (lead.status === "needs_review") card.append(node("p", "lead-boundary", "来源依据已变化，原处置不可直接代表当前结果。请核对新依据后重新处置。"));
+    else if (lead.status === "upgraded") card.append(node("p", "lead-boundary", "该观察已进入本案应回应范围。是否已回应，以重查后的必需检查和人工裁决为准。"));
+    else if (lead.status === "closed") card.append(node("p", "lead-boundary", "本次已关闭该观察，不因此认定客户不存在风险。"));
+    if (!isStale() && lead.disposition && lead.current_valid === false) card.append(node("p", "lead-boundary", "先前处置所依据的内容或执行版本已变化，原理由不能直接作为当前有效裁决；已升级事项仍须按当前范围处理。"));
+    if (lead.candidate_current === false) card.append(node("p", "annotation-meta", "本轮未再次提出此观察；历史出处与处置继续保留，当前义务以处置状态和必需检查为准。"));
+    if (lead.source_current === false) card.append(node("p", "annotation-meta", "观察引用来自历史来源，不作为当前资料证据；原文与原流水请在导出包历史来源中核对。"));
+    if (lead.disposition) card.append(node("p", "lead-decision", `${label(lead.disposition.action)} · ${compact(lead.disposition.actor)}：${lead.disposition.reason || "未记录理由"}`));
+    const details = node("details", "source-details");
+    append(details, node("summary", "", `查看观察出处与处置历史（${list(lead.history).length}）`), pretty({ lead_id: lead.lead_id, candidate_current: lead.candidate_current, current_valid: lead.current_valid, candidate: lead.candidate, history: lead.history })); card.append(details);
+    const controls = node("div", "lead-actions");
+    list(lead.allowed_actions).forEach(action => {
+      if (!["upgrade_lead", "close_lead"].includes(action)) return;
+      const title = action === "upgrade_lead" ? "升级为应回应 →" : lead.status === "needs_review" ? "重新核对并关闭 →" : "说明理由并关闭 →";
+      const control = button(title, "text", () => { state.reviewTarget = lead.lead_id; state.reviewAction = action; setView("workspace"); $("#review-reason")?.focus(); });
+      control.disabled = state.busy || isStale(); controls.append(control);
+    });
+    card.append(controls); body.append(card);
+  });
+  return panel("新增观察线索", `${records.length} 条观察 / 处置记录`, body);
 }
 function field(text, input) { const result = node("label", "field-label", text); result.append(input); return result; }
 function annotationValues(item) {
@@ -523,34 +567,54 @@ function tracePanel() {
 function reviewPanel() {
   const form = node("form", "section-body"); form.id = "review-form";
   const targetOptions = [["task", "整个任务（通过由服务端条件判断）"]];
-  issues().forEach(issue => targetOptions.push([issue.issue_id, `问题：${issue.title || label(issue.type)}`]));
+  issues().filter(issue => issue.type !== "new_lead").forEach(issue => targetOptions.push([issue.issue_id, `问题：${issue.title || label(issue.type)}`]));
+  leadDispositions().forEach(lead => targetOptions.push([lead.lead_id, `观察：${lead.question || lead.candidate?.question || lead.lead_id}`]));
   openItems().filter(item => item.target_id !== "task").forEach(item => targetOptions.push([item.item_id, `未决：${item.title || label(item.kind)}`]));
   const uniqueOptions = targetOptions.filter((option, index, all) => option[0] && all.findIndex(item => item[0] === option[0]) === index);
-  if (!uniqueOptions.some(item => item[0] === state.reviewTarget)) state.reviewTarget = issues()[0]?.issue_id || "task";
+  if (!uniqueOptions.some(item => item[0] === state.reviewTarget)) state.reviewTarget = issues().find(issue => issue.type !== "new_lead")?.issue_id || leadDispositions()[0]?.lead_id || "task";
   const target = select(uniqueOptions, state.reviewTarget); target.id = "review-target";
-  const actions = ["confirm", "reject", "request_correction", "dispute", "reconfirm", "close_item", "upgrade_lead", "close_lead"];
-  const action = select(actions.map(value => [value, label(value)]), "confirm"); action.id = "review-action";
+  const action = select([], ""); action.id = "review-action";
   const actor = select([["质检员", "质检员"], ["复核员", "复核员"], ["经办人", "经办人"]], "质检员");
   const resolution = select([], "");
   const resolutionField = field("明确裁决结果", resolution); resolutionField.hidden = true;
+  const reason = node("textarea"); reason.id = "review-reason"; reason.placeholder = "说明判断依据、补正要求或争议原因"; reason.required = true; reason.maxLength = 4000;
+  const leadNote = node("p", "lead-boundary"); leadNote.hidden = true;
+  const submit = button("追加人工记录", "primary run-button"); submit.type = "submit";
   function updateResolution() {
     resolutionField.hidden = action.value !== "close_item";
     const type = issues().find(issue => issue.issue_id === target.value)?.type;
     const options = target.value === "task" ? [["addressed", "任务争议 / 补正已处理"], ["not_applicable", "任务争议 / 补正不适用"]] : type === "manual_focus" ? [["addressed", "已回应"], ["not_addressed", "未回应"]] : type === "manual_extraction" ? [["addressed", "已完整核对抽取结果"]] : type === "manual_material" ? [["corresponds", "对应"], ["mismatch", "不匹配"], ["not_applicable", "不适用"]] : [["addressed", "已回应"], ["not_addressed", "未回应"], ["corresponds", "对应"], ["mismatch", "不匹配"], ["not_applicable", "不适用"]];
     resolution.replaceChildren(...options.map(([value, text]) => { const option = node("option", "", text); option.value = value; return option; }));
   }
-  action.addEventListener("change", updateResolution);
-  target.addEventListener("change", () => { state.reviewTarget = target.value; updateResolution(); });
-  updateResolution();
-  const reason = node("textarea"); reason.placeholder = "说明判断依据、补正要求或争议原因"; reason.required = true; reason.maxLength = 4000;
-  const fields = append(node("div", "review-fields"), field("处理对象", target), append(node("div", "runner-fields"), field("人工操作", action), field("演示角色", actor)), resolutionField, field("处理理由（必填）", reason));
-  const submit = button("追加人工记录", "primary run-button"); submit.type = "submit"; submit.disabled = state.busy || !run().run_id;
+  function updateActions() {
+    const lead = reviewLead(target.value);
+    const actions = lead ? list(lead.allowed_actions).filter(value => ["upgrade_lead", "close_lead"].includes(value)) : ["confirm", "reject", "request_correction", "dispute", "reconfirm", "close_item"];
+    action.replaceChildren(...actions.map(value => { const option = node("option", "", label(value)); option.value = value; return option; }));
+    action.value = actions.includes(state.reviewAction) ? state.reviewAction : actions[0] || "";
+    state.reviewAction = action.value;
+    action.disabled = !actions.length;
+    submit.disabled = state.busy || !run().run_id || isStale() || !actions.length;
+    leadNote.hidden = !lead;
+    leadNote.textContent = lead ? actions.length ? "升级或关闭会新增来源版本并要求重查。处置该观察不会移除原预警或其他必需问题。" : "当前观察没有可执行处置。请先重查待更新来源，或查看已关闭记录。" : "";
+    reason.placeholder = lead ? "说明升级为应回应事项的依据，或关闭该观察的理由" : "说明判断依据、补正要求或争议原因";
+    updateResolution();
+  }
+  action.addEventListener("change", () => { state.reviewAction = action.value; updateResolution(); });
+  target.addEventListener("change", () => { state.reviewTarget = target.value; updateActions(); });
+  updateActions();
+  const fields = append(node("div", "review-fields"), field("处理对象", target), append(node("div", "runner-fields"), field("人工操作", action), field("演示角色", actor)), resolutionField, leadNote, field("处理理由（必填）", reason));
   append(form, fields, submit, node("p", "review-disclaimer", "人工记录只追加。确认问题并不解决问题；未决事项须显式裁决或补证。全案通过需满足后端必需检查与当前快照条件。"));
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (!reason.value.trim()) return;
     const payload = { action: action.value, target_id: target.value, actor: actor.value, reason: reason.value.trim() };
+    const lead = reviewLead(target.value);
+    if (lead) {
+      if (!list(lead.allowed_actions).includes(action.value) || isStale()) { info("该观察当前不可执行此操作，请刷新后核对。", true); return; }
+      payload.snapshot_id = run().snapshot_id;
+      payload.expected_event_id = lead.expected_event_id || null;
+    }
     if (action.value === "close_item") payload.resolution = resolution.value;
-    await mutate(casePath("/reviews"), payload, "人工处理记录已追加，当前状态已刷新。");
+    await mutate(casePath("/reviews"), payload, lead ? "观察处置已追加并更新来源。请重查当前范围，再核对回应与处置状态。" : "人工处理记录已追加，当前状态已刷新。");
   });
   return panel("问题与任务处理", "演示角色 / 无生产权限", form);
 }
@@ -560,7 +624,7 @@ function renderWorkbench(target) {
   [["issues", `问题与核验 ${issues().length}`], ["annotations", `标签裁决 ${annotations().length}`]].forEach(([value, title]) => {
     const tab = button(title, "", () => { state.resultTab = value; renderDetail(); }); tab.className = `tab-button ${state.resultTab === value ? "active" : ""}`; tab.setAttribute("aria-pressed", String(state.resultTab === value)); centerTabs.append(tab);
   });
-  append(grid, append(node("div", "column"), sourcePanel()), append(node("div", "column"), centerTabs, state.resultTab === "annotations" ? annotationPanel() : resultPanel(), requiredPanel()), append(node("div", "column"), runnerPanel(), tracePanel(), reviewPanel())); target.append(grid);
+  append(grid, append(node("div", "column"), sourcePanel()), append(node("div", "column"), centerTabs, state.resultTab === "annotations" ? annotationPanel() : resultPanel(), leadPanel(), requiredPanel()), append(node("div", "column"), runnerPanel(), tracePanel(), reviewPanel())); target.append(grid);
 }
 function requiredPanel() {
   const checks = list(run().required_checks);
@@ -569,6 +633,17 @@ function requiredPanel() {
     const manuallyResolved = !isStale() && check.status === "pending_judgement" && Array.isArray(state.detail?.pending_checks) && !state.detail.pending_checks.some(pending => pending.check_id === check.check_id);
     checklist.append(append(node("li"), node("span", "", check.label || check.check_id), badge(manuallyResolved ? "已人工裁决" : check.status)));
   }); body.append(checklist);
+  const upgraded = list(run().semantic_results).filter(result => result.type === "upgraded_lead" && result.required);
+  if (upgraded.length) {
+    const section = append(node("div", "result-section"), node("h3", "", "人工升级后应回应事项"), node("p", "annotation-intro", "运行完成仅表示核验已执行，不代表事项已经回应。下列为本次回应候选，人工终值在标签裁决中记录。"));
+    const focuses = node("ul", "checklist");
+    upgraded.forEach(result => {
+      const focus = list(pkg().review_scope?.upgraded_leads).find(item => item.focus_id === result.focus_id);
+      const lead = leadDispositions().find(item => item.focus_id === result.focus_id);
+      focuses.append(append(node("li"), node("span", "", focus?.text || lead?.question || result.focus_id), badge(result.status)));
+    });
+    section.append(focuses); body.append(section);
+  }
   if (!checks.length) body.append(node("div", "inline-empty", "运行后列出本任务的必需检查；无检查清单时不能自动通过。"));
   return panel("必需检查清单", `${checks.length} 项`, body);
 }
@@ -628,7 +703,8 @@ function renderDelivery(target) {
   });
   right.append(panel("未决 / 需重新复核", `${openItems().length} 项业务未决 · ${compact(state.detail?.annotation_pending_count)} 项标签未决`, unresolvedBody), requiredPanel());
   left.append(annotationPanel());
-  const exportBody = append(node("div", "section-body"), node("p", "export-intro", "导出当前检查范围、来源与规范版本、证据、人工记录及未决事项。历史或待复核记录不得冒充当前已通过结果。"));
+  const leads = leadPanel(); if (leads) left.append(leads);
+  const exportBody = append(node("div", "section-body"), node("p", "export-intro", "导出当前检查范围、来源与规范版本、证据、人工记录及未决事项，包含未升级、已升级及已关闭观察的出处和处置历史。历史或待复核记录不得冒充当前已通过结果。"));
   const exportButton = button("↓ 导出审查记录 JSON", "primary export-button", downloadExport); exportButton.disabled = state.busy; exportBody.append(exportButton);
   exportBody.append(node("p", "delivery-explain", "是否进入可交付集合由服务端按当前快照与裁决状态判断。本地哈希链仅辅助验证链条一致性，不单独保证不可篡改。")); right.append(panel("版本化交付", "保留检查边界", exportBody));
   append(grid, left, right); target.append(grid);

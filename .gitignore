@@ -13,8 +13,8 @@
 !/config/schema/
 !/config/schema/S1.0.json
 !/config/prompts/
-!/config/prompts/v2.1/
-!/config/prompts/v2.1/*.txt
+!/config/prompts/v2.2/
+!/config/prompts/v2.2/*.txt
 
 !/data/
 !/data/synthetic/

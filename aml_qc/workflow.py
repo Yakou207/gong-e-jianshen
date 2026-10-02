@@ -17,18 +17,19 @@ from .depgraph import Evaluator, canonical, digest, sources_for
 from .contracts import ClaimOutput, ExtractionOutput, SemanticOutput, contract_schemas
 from .ingest import validate_case
 from .llm import DeepSeek, ModelError, json_answer
+from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "workflow-2.0"
-PROMPT_VERSION = "claims-response-2.1"
-PROMPT_ROOT = ROOT / "config/prompts/v2.1"
+PROMPT_VERSION = "claims-response-2.2"
+PROMPT_ROOT = ROOT / "config/prompts/v2.2"
 BASE_SYSTEM = (PROMPT_ROOT / "base.txt").read_text().strip()
 EXTRACT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "extraction.txt").read_text().strip()
 SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
 AGENT_SYSTEM = SEMANTIC_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip()
 IMPLEMENTATION_HASH = digest({name: (ROOT / "aml_qc" / name).read_text() for name in
                               ["core.py", "ingest.py", "schema.py", "depgraph.py", "workflow.py", "llm.py", "contracts.py",
-                               "annotations.py", "store.py", "exports.py", "api.py", "migrations.py"]})
+                               "annotations.py", "store.py", "exports.py", "api.py", "migrations.py", "leads.py"]})
 
 
 def default_schema():
@@ -105,6 +106,15 @@ def focuses_for(case):
     return focuses
 
 
+def focus_evidence(case, focus):
+    upgraded = next((row for row in case.get("review_scope", {}).get("upgraded_leads", [])
+                     if row["focus_id"] == focus["focus_id"]), None)
+    if upgraded:
+        return {"type": "upgraded_focus", "focus_id": focus["focus_id"], "lead_id": upgraded.get("lead_id"),
+                "origin_issue_id": upgraded.get("origin_issue_id"), "content_hash": digest(upgraded)}
+    return {"type": "alert_focus", "focus_id": focus["focus_id"], "revision": (case.get("alert") or {}).get("revision")}
+
+
 def tool_definitions():
     specs = [
         ("query_transactions", "查询本案指定范围流水并精确汇总；空集也保留查询范围。",
@@ -164,10 +174,12 @@ def semantic_input(case, checks):
         return value
     return {"task_mode": case["task_mode"], "focuses": focuses_for(case), "documents": case.get("documents", []),
             "materials": case.get("materials", []), "material_links": case.get("material_links", []),
-            "checks": compact(checks), "scope": {"account": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}}
+            "checks": compact(checks),
+            "lead_basis_catalog": [{k: row[k] for k in ("basis_ref", "kind", "content_hash")} for row in lead_basis(case, checks).values()],
+            "scope": {"account": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}}
 
 
-def normalize_semantic(case, response, checks=None):
+def normalize_semantic(case, response, checks=None, tool_trace=(), execution=None):
     try:
         response = SemanticOutput.model_validate(response).model_dump()
     except ValidationError as exc:
@@ -182,8 +194,7 @@ def normalize_semantic(case, response, checks=None):
             raise ModelError("非法回应判断状态")
         if focus["status"] == "addressed" and not focus.get("quote"):
             raise ModelError("回应判断缺少原文")
-        focus["evidence"] = [doc_evidence(case, focus.get("quote", "")), {"type": "alert_focus", "focus_id": focus["focus_id"],
-                                                                                   "revision": (case.get("alert") or {}).get("revision")}]
+        focus["evidence"] = [doc_evidence(case, focus.get("quote", "")), focus_evidence(case, focus)]
     gaps = response.get("gaps", [])
     if not isinstance(gaps, list):
         raise ModelError("材料缺口格式错误")
@@ -230,13 +241,15 @@ def normalize_semantic(case, response, checks=None):
         gap["model_draft"] = {"reason": draft, "requested_material": gap["requested_material"], "status": "unverified_model_suggestion"}
         gap["evidence"] = evidence
     gaps = list({(g["basis_kind"], g["basis_ref"], g["quote"]): g for g in gaps}.values())
-    return {"focuses": items, "gaps": gaps}
+    return {"focuses": items, "gaps": gaps,
+            "leads": normalize_leads(case, response["leads"], lead_basis(case, checks, tool_trace), execution)}
 
 
 def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None):
     data = semantic_input(case, checks)
+    execution = evaluator.sources["source:execution"]["value"]
     base = [{"role": "system", "content": SEMANTIC_SYSTEM}, {"role": "user", "content": canonical(data)}]
-    initial = normalize_semantic(case, json_answer(model.complete(base)), checks)
+    initial = normalize_semantic(case, json_answer(model.complete(base)), checks, execution=execution)
     if mode == "fixed":
         return {"semantic": initial, "agent_trace": [], "adaptive_rounds": 0}
     messages = [{"role": "system", "content": AGENT_SYSTEM},
@@ -253,7 +266,7 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
                 not isinstance(c["function"].get("arguments"), str) for c in calls):
             raise ModelError("模型工具调用格式无效")
         if not calls:
-            return {"semantic": normalize_semantic(case, json_answer(message), checks), "agent_trace": trace, "adaptive_rounds": rounds}
+            return {"semantic": normalize_semantic(case, json_answer(message), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
         rounds += 1
         if len(calls) > 2:
             raise ModelError("模型单轮工具调用超出冻结预算，未执行本轮")
@@ -273,9 +286,10 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
                           "result_ref": "tool:" + tool + ":" + digest(args)[:20] if status == "completed" else None,
                           "raw_arguments": function.get("arguments"), "round": round_index + 1,
                           "duration_ms": round((perf_counter() - start) * 1000, 3), "purpose": "模型根据已见返回结果选择的追加核查"})
-            messages.append({"role": "tool", "tool_call_id": call["id"], "content": canonical(result)})
+            messages.append({"role": "tool", "tool_call_id": call["id"],
+                             "content": canonical({**result, "lead_basis_ref": trace[-1]["result_ref"]})})
     messages.append({"role": "user", "content": "追加工具预算已耗尽。请返回JSON最终候选；没有核实的事项保持pending_judgement。"})
-    return {"semantic": normalize_semantic(case, json_answer(model.complete(messages)), checks), "agent_trace": trace, "adaptive_rounds": rounds}
+    return {"semantic": normalize_semantic(case, json_answer(model.complete(messages)), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
 
 
 class FlowState(TypedDict):
@@ -307,7 +321,7 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
     evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
     started = perf_counter()
     result = {"case_id": case["case_id"], "mode": mode, "provider": provider, "strategy": strategy,
-              "features": [], "claims": [], "claim_results": [], "material_results": [], "semantic_results": [], "issues": [],
+              "features": [], "claims": [], "claim_results": [], "material_results": [], "semantic_results": [], "lead_candidates": [], "issues": [],
               "schema_version": schema["schema_version"],
               "open_items": [], "required_checks": [], "warnings": list(validation["warnings"]),
               "agent_verified": False, "execution": execution}
@@ -392,9 +406,10 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                     result["semantic_results"].append({"focus_id": focus["focus_id"], "status": "pending_judgement",
                         "type": "upgraded_lead" if focus["focus_id"] in upgraded else "alert_focus",
                         "execution_status": "completed", "required": True, "reason": "离线演示不作语义判断",
-                        "evidence": [doc_evidence(case)],
+                        "evidence": [doc_evidence(case), focus_evidence(case, focus)],
                         "object": {"account_id": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}})
-                    issue("manual_focus", "待人工判断是否回应关注点", focus["text"], "semantic:" + focus["focus_id"], [doc_evidence(case)])
+                    issue("manual_focus", "待人工判断是否回应关注点", focus["text"], "semantic:" + focus["focus_id"],
+                          [doc_evidence(case), focus_evidence(case, focus)])
             else:
                 attempt_trace = []
                 try:
@@ -424,6 +439,14 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                         issue("unsupported_explanation", gap.get("title", "解释支持不足"), gap.get("reason", ""),
                               "gap:" + digest([gap["basis_kind"], gap["basis_ref"], gap["quote"]])[:16], gap["evidence"])
                         result["issues"][-1]["model_draft"] = gap["model_draft"]
+                    result["lead_candidates"] = stage["semantic"]["leads"]
+                    for lead in result["lead_candidates"]:
+                        if lead_has_disposition(case, lead):
+                            continue
+                        issue("new_lead", "新增观察建议，待人工确认范围", lead["question"],
+                              "lead:" + lead["lead_id"], lead["evidence"], blocking=False)
+                        result["issues"][-1].update(lead_id=lead["lead_id"], model_draft=lead["model_draft"],
+                                                    novelty_status="unconfirmed")
                 except ModelError as exc:
                     result["agent_trace"] = attempt_trace
                     result["adaptive_rounds"] = len({t["round"] for t in attempt_trace})

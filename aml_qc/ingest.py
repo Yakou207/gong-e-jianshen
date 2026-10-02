@@ -125,6 +125,34 @@ def validate_case(case):
             for name in targets:
                 if name not in schema["labels"] or name not in LABEL_VALUES:
                     errors.append(f"目标标签未在当前规范中实现:{name}")
+        for field in ("upgraded_leads", "lead_dispositions"):
+            records = scope.get(field, [])
+            if not isinstance(records, list) or any(not isinstance(r, dict) for r in records):
+                errors.append(f"review_scope.{field}必须为对象数组")
+                continue
+            if field == "upgraded_leads":
+                ids = []
+                for record in records:
+                    if any(not isinstance(record.get(key), str) or not record[key].strip() for key in ("focus_id", "text")):
+                        errors.append("升级线索须有focus_id和具体需回应事项text")
+                    else:
+                        ids.append(record["focus_id"])
+                if len(ids) != len(set(ids)):
+                    errors.append("升级线索focus_id不可重复")
+            else:
+                ids = []
+                for record in records:
+                    required_fields = ("event_id", "lead_id", "context_hash", "actor", "reason", "snapshot_id", "run_id", "source_hash", "created_at")
+                    if any(not isinstance(record.get(key), str) or not record[key].strip() for key in required_fields):
+                        errors.append("线索处置须保留完整人员、依据、版本和事件绑定")
+                    else:
+                        ids.append(record["event_id"])
+                    if record.get("status") not in {"upgraded", "closed"} or not isinstance(record.get("candidate"), dict):
+                        errors.append("线索处置状态或原候选格式无效")
+                    elif record["candidate"].get("lead_id") != record.get("lead_id"):
+                        errors.append("线索处置与原候选标识不一致")
+                if len(ids) != len(set(ids)):
+                    errors.append("线索处置事件不可重复")
     if case.get("currency") != "CNY":
         errors.append("首版仅支持CNY")
     if case.get("timezone") != "Asia/Shanghai":

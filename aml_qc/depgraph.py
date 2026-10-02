@@ -105,5 +105,5 @@ class Evaluator:
 
 def business_result(run):
     """Fields compared by independent full/incremental mechanism tests."""
-    return {k: run.get(k) for k in ["features", "claims", "claim_results", "material_results", "semantic_results",
+    return {k: run.get(k) for k in ["features", "claims", "claim_results", "material_results", "semantic_results", "lead_candidates",
                                   "issues", "open_items", "required_checks", "qc_recommendation", "run_status"]}

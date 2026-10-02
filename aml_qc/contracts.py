@@ -78,9 +78,16 @@ class GapOutput(StrictOutput):
     reason: str = Field(min_length=1)
 
 
+class LeadOutput(StrictOutput):
+    observation: str = Field(min_length=1, max_length=1200)
+    question: str = Field(min_length=1, max_length=600)
+    basis_refs: list[str] = Field(min_length=1, max_length=5)
+
+
 class SemanticOutput(StrictOutput):
     focuses: list[FocusOutput]
     gaps: list[GapOutput]
+    leads: list[LeadOutput] = Field(default_factory=list, max_length=3)
 
 
 def contract_schemas():
