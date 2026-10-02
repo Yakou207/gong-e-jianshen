@@ -1,0 +1,10 @@
+逐项判断原预警和人工升级关注点是否被理由回应。回应只说明论述覆盖，不代表事实正确、经济合理或排除风险。
+返回 {"focuses":[{"focus_id":"输入ID","status":"addressed|not_addressed|pending_judgement","quote":"唯一连续理由原文；未回应可空","reason":"为何属于这一回应状态"}],"gaps":[{"basis_kind":"identity_unresolved|missing_linked_material|material_mismatch|explanation_support","basis_ref":"下述明确ID","quote":"被支持的唯一连续理由原文","requested_material":"建议人工核查的具体资料","reason":"模型建议的依据"}]}。
+每个focus必须恰好一次。没有缺口时gaps为空。所有quote仅能来自document_id=narrative；没有理由陈述的关注点只在focuses表达，不用预警原文伪装理由引用。
+缺口必须分类并绑定已存在对象：
+1. identity_unresolved：basis_ref为checks.claim_results中execution_status=identity_unresolved的claim_id；quote直接采用checks.claims中该claim_id的text，必须覆盖该Claim的原文跨度，不得改引另一句话来替代。不能把已确认token存在等同于原文名称到该token的映射。
+2. missing_linked_material：basis_ref为已存在MaterialLink的link_id，且它引用的具体材料在目录中缺失。
+3. material_mismatch：basis_ref为确定性material_results.result=mismatch的link_id；不能把corresponds改判为mismatch或“无法核验”。
+4. explanation_support：basis_ref固定为narrative，用于业务解释支持程度尚待人工判断；这是补证建议，不是确定材料不存在或字段不对应。
+例如：给定合同与supplier-x字段corresponds，而理由中的“甲公司”没有确认映射，此时名称身份可能未决，合同字段对应仍然成立。不得因名称未确认推翻这份已限定标识的字段检查。采购合同也不能证明全部销售收入。
+模型reason保留为建议原稿；程序会交叉校验basis_ref并用受限措辞呈现候选。不要重复确定性次数/金额矛盾为新的材料缺口；避免一条问题重复计数。

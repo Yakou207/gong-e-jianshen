@@ -1,0 +1,890 @@
+"use strict";
+
+const state = {
+  cases: [], config: {}, detail: null, caseId: null, view: "tasks", sourceTab: "narrative",
+  evidence: null, reviewTarget: null, provider: "local", mode: "fixed", busy: false,
+  editorMode: "source", editorPackage: null, editorSection: "all", loadSerial: 0,
+  annotationTarget: null, annotationEvidence: [], resultTab: "issues",
+  migration: { open: false, catalog: [], baseHash: "", draft: "", reason: "", actor: "质检员", preview: null, selected: [], error: "", loading: false, requiresRefresh: false },
+};
+const $ = (selector, root = document) => root.querySelector(selector);
+const list = value => Array.isArray(value) ? value : [];
+const compact = value => value === undefined || value === null || value === "" ? "—" : String(value);
+const json = value => JSON.stringify(value, null, 2);
+const first = (...values) => values.find(value => value !== undefined && value !== null && value !== "");
+const dictionary = {
+  pending: "待处理", not_started: "未运行", not_run: "未运行", running: "运行中", completed: "运行完成", complete: "已完成", partial: "部分完成", failed: "执行失败", computed: "已计算", reused: "已复用",
+  return_for_revision: "建议退回修订", return_for_correction: "建议退回修订", revise: "建议退回修订", request_correction: "要求补正", needs_revision: "建议退回修订",
+  request_evidence: "建议补证", supplement: "建议补证", needs_evidence: "建议补证", pending_judgement: "待人工判断", manual_review: "待人工判断",
+  no_definite_issue: "未发现确定问题", no_definite_issues: "未发现确定问题", no_issues_found: "未发现确定问题", no_issue_found: "未发现确定问题",
+  awaiting_review: "待处理", awaiting_evidence: "待补证", needs_correction: "待补正", disputed: "争议中", dispute: "提出争议",
+  needs_review: "需重新复核", needs_recheck: "需重新复核", needs_reconfirmation: "需重新复核", recheck_required: "需重新复核", reconfirm_required: "需重新复核", stale: "待重查", reviewed: "已确认完成", confirmed_complete: "已确认完成", audit_invalid: "审计链待核查",
+  alert_review: "预警理由复核", annotation_only: "独立标注核验", full: "完整覆盖", unknown: "覆盖未知",
+  met: "特征成立", not_met: "特征不成立", undeterminable: "无法判定", supported: "支持", supports: "支持", contradicted: "矛盾", contradiction: "矛盾", insufficient: "证据不足", insufficient_evidence: "证据不足",
+  corresponds: "对应", mismatch: "不匹配", addressed: "已回应", not_addressed: "未回应", identity_unresolved: "对象未对齐", extraction_failed: "抽取失败",
+  claim_error: "事实矛盾", focus_not_addressed: "关注点未回应", unsupported_explanation: "支持依据不足", material_mismatch: "材料不对应", new_lead: "新增观察线索",
+  manual_focus: "回应待人工判断", manual_material: "材料关系待人工判断", manual_extraction: "抽取完整性待核对", material_insufficient: "材料不足", claim_unresolved: "事实待核验", insufficient_coverage: "覆盖不足", execution_failed: "执行失败", missing_alert: "缺少原预警", candidate: "候选待确认", source_changed: "来源已修订",
+  confirmed: "问题已确认", rejected: "已驳回", open: "待处理", resolved: "已解决", closed: "已关闭", revoked: "已撤销", high: "高", medium: "中", low: "低", warning: "提示",
+  confirm: "确认候选 / 完成任务", reject: "驳回候选", reconfirm: "重新确认", close_item: "裁决未决事项", upgrade_lead: "升级新增线索", close_lead: "关闭新增线索", not_applicable: "不适用",
+  fixed: "固定流程", agent: "Agent 动态取证", local: "确定性演示", deepseek: "DeepSeek", incremental: "增量重查", success: "成功", ok: "成功", passed: "通过", valid: "有效",
+  count: "次数", amount_sum: "金额合计", counterparty: "对手对象", time_range: "时间范围", narrative: "处置理由", kyc: "客户资料", in: "转入", out: "转出", incoming: "转入", outgoing: "转出",
+  feature: "交易特征", claim: "事实核验", semantic: "疑点回应", material: "材料关系", alert_response: "疑点回应", material_relation: "材料关系", revised: "已人工修订", amended: "已人工修订", abstained: "已弃标", abstain: "弃标 / 无法裁决", amend: "修订标签", manual_override: "人工修订", human: "人工", deterministic: "确定性计算",
+  machine_candidate: "运行候选", human_confirmation: "人工确认", human_judgement: "人工语义判断", human_extraction_reverified: "人工抽取修订后重核",
+  scope_review: "本次范围适用性", no_candidate: "本类无候选",
+  human_extraction_correction_pending: "人工抽取修订待复核", correction_pending: "人工抽取修订待复核", pending_source_review: "需补正来源后复核",
+  schema_migrated: "规范已迁移",
+};
+const label = value => dictionary[value] || compact(value);
+function node(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined && text !== null) element.textContent = String(text);
+  return element;
+}
+function append(parent, ...children) { children.filter(Boolean).forEach(child => parent.append(child)); return parent; }
+function button(text, className, action) {
+  const element = node("button", `button ${className || "secondary"}`, text);
+  element.type = "button";
+  if (action) element.addEventListener("click", action);
+  return element;
+}
+function badge(value, type) {
+  let tone = "";
+  if (["failed", "contradicted", "contradiction", "mismatch", "claim_error", "material_mismatch", "return_for_revision", "return_for_correction", "revise", "needs_revision", "建议退回修订"].includes(value)) tone = "red";
+  if (["completed", "complete", "confirmed_complete", "reviewed", "supports", "supported", "corresponds", "addressed", "full", "success", "ok", "passed", "valid", "本次质检范围内通过"].includes(value)) tone = "green";
+  if (["partial", "undeterminable", "insufficient", "insufficient_evidence", "needs_evidence", "request_evidence", "awaiting_evidence", "needs_review", "needs_recheck", "needs_reconfirmation", "recheck_required", "reconfirm_required", "stale", "disputed", "pending_judgement", "identity_unresolved", "not_addressed", "建议补证", "待人工判断"].includes(value)) tone = "amber";
+  if (["running", "met", "new_lead", "reconfirm", "confirmed", "not_met"].includes(value)) tone = "blue";
+  const text = type === "review" && value === "completed" ? "已确认完成" : type === "coverage" && value === "partial" ? "部分覆盖" : label(value);
+  return node("span", `badge ${tone}`, text);
+}
+function panel(title, subtitle, body) {
+  const element = node("section", "panel");
+  append(element, append(node("div", "section-heading"), node("h2", "", title), subtitle ? node("span", "section-caption", subtitle) : null), body);
+  return element;
+}
+function pretty(value) { return node("pre", "structured-data", json(value)); }
+function empty(title, description, action) {
+  return append(node("div", "empty-state"), node("div", "empty-icon", "◎"), node("strong", "", title), node("p", "", description), action);
+}
+function info(message, error = false) {
+  const target = $("#notice"); target.textContent = message; target.className = error ? "error" : ""; target.hidden = false;
+  clearTimeout(info.timer); info.timer = setTimeout(() => { target.hidden = true; }, error ? 16000 : 8000);
+}
+function formatDate(value) {
+  if (!value) return "未记录时间";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
+}
+function errorText(detail) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map(item => `${list(item.loc).join(".")}: ${item.msg || json(item)}`).join("\n");
+  return json(detail);
+}
+async function api(path, options = {}) {
+  let response;
+  try { response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options }); }
+  catch (_) { throw new Error("无法连接本地服务。请确认后端已启动，再点击刷新。"); }
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch (_) { throw new Error(`服务返回了非 JSON 响应（HTTP ${response.status}），请检查后端。`); }
+  if (!response.ok) throw new Error(errorText(data.detail || data.error || data.message || `请求失败（HTTP ${response.status}）`));
+  return data;
+}
+const casePath = suffix => `/api/cases/${encodeURIComponent(state.caseId)}${suffix || ""}`;
+const pkg = () => state.detail?.package || state.detail?.case || {};
+const run = () => state.detail?.latest_run || {};
+const issues = () => list(run().issues);
+const openItems = () => list(first(state.detail?.open_items, run().open_items)).filter(item => !["closed", "resolved", "revoked"].includes(item.status));
+const reviews = () => list(state.detail?.review_events);
+const annotations = () => list(state.detail?.annotations);
+const annotationStatus = item => isStale() ? "needs_review" : item.review?.correction_status === "pending_source_review" ? "correction_pending" : item.review?.status || "candidate";
+const annotationStatusText = status => ({ confirmed: "已确认标签", revised: "已修订标签", amended: "已修订标签", candidate: "候选待裁决", rejected: "候选已驳回", needs_review: "需重新裁决" }[status] || label(status));
+const annotationValue = value => value === undefined || value === null ? "未形成终值" : typeof value === "object" ? json(value) : label(value);
+function statuses() {
+  return {
+    run_status: isStale() ? "stale" : first(state.detail?.run_status, run().run_status, "not_started"),
+    qc_recommendation: first(state.detail?.qc_recommendation, run().qc_recommendation, "pending"),
+    review_status: first(state.detail?.review_status, run().review_status, "pending"),
+  };
+}
+function isStale() {
+  return Boolean(state.detail?.stale || state.detail?.needs_recheck || state.detail?.is_stale || state.detail?.current_snapshot_valid === false ||
+    (state.detail?.source_hash && run().source_hash && state.detail.source_hash !== run().source_hash));
+}
+function coverLabel(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    if (!value.length) return "unknown";
+    const values = value.map(item => first(item.status, item.completeness, item.coverage, "unknown"));
+    return values.every(item => item === "full") ? "full" : values.includes("partial") ? "partial" : "unknown";
+  }
+  return first(value?.status, value?.completeness, "unknown");
+}
+const completedReviews = ["completed", "confirmed_complete", "reviewed", "本次质检范围内通过"];
+const outdatedReviews = ["needs_review", "needs_recheck", "needs_reconfirmation", "recheck_required", "reconfirm_required", "stale"];
+function renderTasks() {
+  $("#nav-count").textContent = state.cases.length;
+  const counts = [
+    ["当前合成任务", state.cases.length, "按实际导入案件统计", "▦", false],
+    ["待人工处理", state.cases.filter(item => !completedReviews.includes(item.review_status)).length, "问题确认与最终裁决分别记录", "◎", true],
+    ["需要重新复核", state.cases.filter(item => outdatedReviews.includes(item.review_status) || item.stale || item.needs_recheck).length, "来源变化后保留原人工记录", "↻", false],
+    ["人工已确认完成", state.cases.filter(item => completedReviews.includes(item.review_status)).length, "仅限已完成的当前检查范围", "✓", false],
+  ];
+  $("#task-summary").replaceChildren(...counts.map(([name, count, subtitle, symbol, accent]) => append(node("div", `summary-card ${accent ? "accent" : ""}`), node("div", "summary-label", name), node("div", "summary-value", count), node("small", "", subtitle), node("span", "summary-mark", symbol))));
+  const query = $("#task-search").value.toLowerCase().trim();
+  const filter = $("#task-filter").value;
+  const filtered = state.cases.filter(item => {
+    const matchesText = `${item.case_id} ${item.title || ""}`.toLowerCase().includes(query);
+    const reviewState = item.review_status || "pending";
+    const complete = completedReviews.includes(reviewState);
+    const stale = outdatedReviews.includes(reviewState) || item.stale || item.needs_recheck;
+    return matchesText && (filter === "all" || (filter === "completed" && complete) || (filter === "needs_recheck" && stale) || (filter === "pending" && !complete && !stale));
+  });
+  $("#filtered-count").textContent = `${filtered.length} 个案件`;
+  $("#task-rows").replaceChildren(...filtered.map(item => {
+    const row = node("tr");
+    const identity = append(node("td"), node("span", "case-name", item.title || item.case_id), node("span", "case-id", item.case_id), node("span", "task-type", label(item.task_mode)));
+    append(row, identity, append(node("td"), node("span", "version-label", compact(item.data_version))), append(node("td"), badge(item.run_status || "not_started")), append(node("td"), badge(item.qc_recommendation || "pending")), append(node("td"), badge(item.review_status || "pending", "review")), append(node("td"), badge(coverLabel(first(item.coverage_summary, item.coverage, item.completeness)), "coverage")), append(node("td"), button("审查 →", "text", () => loadCase(item.case_id, "workspace"))));
+    return row;
+  }));
+  const blank = $("#task-empty"); blank.hidden = filtered.length > 0;
+  if (!filtered.length) blank.replaceChildren(node("strong", "", state.cases.length ? "没有匹配的任务" : "还没有可审查的案件"), node("p", "", state.cases.length ? "试试其他名称、编号或处理状态。" : "导入合成案件包，或检查本地服务是否已加载种子案例。"));
+}
+function setView(view) {
+  const changed = state.view !== view;
+  state.view = view;
+  document.querySelectorAll(".view").forEach(element => { element.hidden = element.id !== `view-${view}`; });
+  document.querySelectorAll(".nav-item").forEach(element => { element.classList.toggle("active", element.dataset.view === view); element.setAttribute("aria-current", element.dataset.view === view ? "page" : "false"); });
+  $("#view-label").textContent = { tasks: "质检任务", workspace: "质检工作区", delivery: "重查与交付" }[view];
+  if (view !== "tasks") renderDetail();
+  if (changed) window.scrollTo({ top: 0, behavior: "instant" });
+}
+async function loadCase(caseId, view = state.view) {
+  if (state.busy) return;
+  const serial = ++state.loadSerial;
+  const previousId = state.caseId;
+  try {
+    const detail = await api(`/api/cases/${encodeURIComponent(caseId)}`);
+    if (serial !== state.loadSerial) return;
+    state.caseId = caseId; state.detail = detail;
+    if (previousId !== caseId) { state.evidence = null; state.sourceTab = "narrative"; state.reviewTarget = null; }
+    setView(view); renderDetail();
+  } catch (error) { info(error.message, true); }
+}
+async function refresh() {
+  $("#refresh-button").disabled = true;
+  const results = await Promise.allSettled([api("/api/cases"), api("/api/config")]);
+  const connection = $("#connection-status");
+  if (results[0].status === "fulfilled") {
+    state.cases = list(results[0].value.cases || results[0].value);
+    connection.className = "connection online"; connection.replaceChildren(node("i"), document.createTextNode("本地服务已连接"));
+    renderTasks();
+  } else {
+    connection.className = "connection offline"; connection.replaceChildren(node("i"), document.createTextNode("本地服务未连接"));
+    info(results[0].reason.message, true); renderTasks();
+  }
+  if (results[1].status === "fulfilled") state.config = results[1].value;
+  else state.config = { deepseek_configured: false, config_error: results[1].reason.message };
+  $("#refresh-button").disabled = false;
+  if (state.caseId && results[0].status === "fulfilled") await loadCase(state.caseId);
+}
+function caseHeading(delivery = false) {
+  const p = pkg();
+  const title = append(node("div"), button("← 返回任务列表", "text back-link", () => setView("tasks")), node("h1", "", delivery ? "重查与交付" : p.title || state.caseId));
+  const subtitle = append(node("div", "case-subtitle"), node("span", "case-id", state.caseId), node("span", "", delivery ? p.title || "当前案件" : label(p.task_mode)), node("span", "version-label", `来源 ${compact(p.data_version)}`), badge("合成案例", ""));
+  title.append(subtitle);
+  const chooser = node("select", "case-select"); chooser.setAttribute("aria-label", "切换案件");
+  state.cases.forEach(item => { const option = node("option", "", item.title || item.case_id); option.value = item.case_id; chooser.append(option); });
+  chooser.value = state.caseId; chooser.addEventListener("change", () => loadCase(chooser.value));
+  return append(node("div", "case-heading"), title, chooser);
+}
+function statusStrip() {
+  const s = statuses();
+  return append(node("div", "status-strip"), ...[["执行状态", s.run_status], ["质检建议", s.qc_recommendation], ["人工处理", s.review_status]].map(([title, value]) => append(node("div", "status-cell"), node("span", "", title), badge(value, title === "人工处理" ? "review" : ""))));
+}
+function renderDetail() {
+  const target = state.view === "delivery" ? $("#delivery-content") : $("#workspace-content");
+  if (!state.detail) { target.replaceChildren(empty("选择一个质检任务", "从任务队列打开案件，查看来源、质检证据与人工记录。", button("前往任务队列", "primary", () => setView("tasks")))); return; }
+  target.replaceChildren(caseHeading(state.view === "delivery"), statusStrip());
+  if (isStale()) target.append(node("div", "stale-banner", `↻ ${state.detail?.engine_changed ? "执行代码已变化" : "来源已变化"}，以下旧运行结果仅供历史参考。请按当前来源与执行版本重查，并对受影响的人工记录重新确认；旧结果不能代表当前检查已通过。`));
+  if (state.view === "delivery") renderDelivery(target); else renderWorkbench(target);
+}
+function documents() {
+  const p = pkg();
+  if (Array.isArray(p.documents)) return [...p.documents].sort((a, b) => Number(b.type === "narrative" || b.document_id === "narrative") - Number(a.type === "narrative" || a.document_id === "narrative"));
+  return [p.narrative ? { document_id: "narrative", type: "narrative", text: typeof p.narrative === "string" ? p.narrative : p.narrative.text } : null, p.kyc ? { document_id: "kyc", type: "kyc", text: typeof p.kyc === "string" ? p.kyc : p.kyc.text } : null].filter(Boolean);
+}
+function documentText(document) { return first(document.text, document.content, ""); }
+function textWithSpan(text, document) {
+  const paragraph = node("p", "narrative-text");
+  const characters = Array.from(text);
+  const evidence = state.evidence;
+  const source = evidence?.source || evidence;
+  const span = source?.span;
+  const start = Array.isArray(span) ? span[0] : first(span?.start, source?.start);
+  const end = Array.isArray(span) ? span[1] : first(span?.end, source?.end);
+  const sameDocument = source?.document_id === document.document_id;
+  const sameRevision = source?.revision === undefined || String(source.revision) === String(document.revision);
+  if (sameDocument && sameRevision && Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start && end <= characters.length) append(paragraph, document.createTextNode(characters.slice(0, start).join("")), node("mark", "text-highlight", characters.slice(start, end).join("")), document.createTextNode(characters.slice(end).join("")));
+  else paragraph.textContent = text;
+  return paragraph;
+}
+function sourcePanel() {
+  const body = node("div");
+  const tabs = node("div", "tab-bar");
+  [["narrative", "理由与预警"], ["transactions", "流水"], ["materials", "材料"], ["coverage", "覆盖 / 映射"]].forEach(([value, text]) => {
+    const tab = button(text, "tab-button", () => { state.sourceTab = value; renderDetail(); });
+    tab.className = `tab-button ${state.sourceTab === value ? "active" : ""}`; tab.setAttribute("aria-pressed", String(state.sourceTab === value)); tabs.append(tab);
+  });
+  body.append(tabs);
+  const content = node("div", "section-body");
+  if (state.evidence) {
+    const details = node("details", "source-details"); details.open = true;
+    append(details, node("summary", "", "已选择的证据引用"), pretty(state.evidence)); content.append(details);
+    content.append(node("p", "source-count", "来源引用按其声明的版本定位；历史修订请在交付包中核对。"));
+  }
+  const p = pkg();
+  if (state.sourceTab === "narrative") {
+    const a = p.alert;
+    const alert = typeof a === "string" ? a : first(a?.original_focus, a?.focus_text, a?.text, a?.description, a?.original_text, a?.focus, a?.focus_points);
+    const alertText = typeof alert === "string" ? alert : alert ? json(alert) : a ? json(a) : "未提供原始预警。预警理由复核任务需补充预警后完成相关检查。";
+    content.append(append(node("div", "source-block"), node("div", "field-caption", `原始预警${a?.alert_id ? ` · ${a.alert_id}` : ""}`), node("div", "alert-box", alertText)));
+    documents().forEach(document => {
+      const block = node("div", "source-block");
+      append(block, node("div", "field-caption", `${label(document.type || document.document_id || "文档")} · ${document.document_id || "未标识"} / ${compact(document.revision)}`), textWithSpan(String(documentText(document)), document)); content.append(block);
+    });
+    if (!documents().length) content.append(node("div", "inline-empty", "暂无处置理由或客户资料。"));
+    const metadata = node("dl", "metadata-grid");
+    [["被检账户", p.subject_account_id], ["币种 / 时区", `${compact(p.currency)} / ${compact(p.timezone)}`], ["覆盖起点（包含）", p.coverage_start], ["覆盖终点（不含）", p.coverage_end]].forEach(([title, value]) => metadata.append(append(node("div"), node("dt", "", title), node("dd", "", compact(value)))));
+    content.append(metadata);
+  } else if (state.sourceTab === "transactions") {
+    const transactions = list(p.transactions); content.append(node("div", "source-count", `${transactions.length} 条实际导入记录 · 金额单位：${p.currency || "CNY"}`));
+    const table = node("table", "small-table"); const head = append(node("thead"), append(node("tr"), ...["时间 / 编号", "对手", "方向", "金额"].map(value => node("th", "", value))));
+    const tbody = node("tbody");
+    const selectedIds = evidenceTransactionIds(state.evidence);
+    transactions.forEach(transaction => {
+      const row = node("tr", `transaction-row ${selectedIds.includes(transaction.transaction_id) ? "highlight" : ""}`);
+      row.dataset.transactionId = transaction.transaction_id;
+      append(row, append(node("td"), node("span", "", compact(transaction.timestamp).replace("T", " ").slice(0, 16)), node("span", "transaction-cell-id", transaction.transaction_id)), append(node("td"), node("span", "", first(transaction.counterparty_name_masked, transaction.counterparty_token, "—")), node("span", "transaction-cell-id", transaction.counterparty_token)), node("td", "", label(transaction.direction)), node("td", "numeric", compact(transaction.amount))); tbody.append(row);
+    });
+    append(table, head, tbody); content.append(append(node("div", "table-scroll"), table));
+    if (!transactions.length) content.append(node("div", "inline-empty", "当前来源没有交易记录。空流水不代表已验证不存在交易。"));
+  } else if (state.sourceTab === "materials") {
+    const materials = list(p.materials); content.append(node("div", "source-count", `${materials.length} 份支持材料 · 不核验材料真伪`));
+    materials.forEach(material => {
+      const block = node("div", `document-card ${state.evidence?.material_id === material.material_id ? "highlight" : ""}`);
+      append(block, node("h4", "", first(material.title, material.material_id, "支持材料")), node("p", "", `${compact(material.type || material.material_type)} · 修订 ${compact(material.revision)}`), pretty(material)); content.append(block);
+    });
+    const links = node("details", "source-details"); append(links, node("summary", "", `材料支持关系（${list(p.material_links).length}）`), pretty(p.material_links || [])); content.append(links);
+    if (!materials.length) content.append(node("div", "inline-empty", "未导入支持材料，补充后须重查相关候选。"));
+  } else {
+    content.append(append(node("div", "source-block"), node("div", "field-caption", "逐来源、字段、账户与窗口的覆盖声明"), pretty(p.coverage || [])));
+    content.append(append(node("div", "source-block"), node("div", "field-caption", "对象对应关系 · 名称相似不等于已确认"), pretty(p.entity_mappings || [])));
+  }
+  body.append(content);
+  const result = panel("来源与材料", "只读证据", body);
+  $(".section-heading", result).append(button("修订", "text", () => openEditor("source")));
+  return result;
+}
+function evidenceTransactionIds(evidence) {
+  if (!evidence) return [];
+  if (typeof evidence === "string") return [evidence];
+  return [evidence.transaction_id, ...list(evidence.transaction_ids), ...list(evidence.query_result?.transaction_ids)].filter(Boolean);
+}
+function locateEvidence(evidence) {
+  state.evidence = evidence;
+  if (evidenceTransactionIds(evidence).length) state.sourceTab = "transactions";
+  else if (evidence?.material_id || evidence?.type === "material") state.sourceTab = "materials";
+  else if (evidence?.document_id || evidence?.source?.document_id || evidence?.type === "document") state.sourceTab = "narrative";
+  else state.sourceTab = "coverage";
+  renderDetail();
+  const highlight = $(".transaction-row.highlight, .document-card.highlight, .text-highlight");
+  highlight?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function evidenceLinks(value) {
+  const refs = Array.isArray(value) ? value : value ? [value] : [];
+  return append(node("div", "issue-evidence"), ...refs.map((reference, index) => {
+    const title = evidenceTitle(reference, index);
+    const result = button(`↗ ${title}`, "", () => locateEvidence(reference)); result.className = "evidence-link"; result.title = "定位来源并查看完整证据引用"; return result;
+  }));
+}
+function evidenceTitle(reference, index = 0) {
+  if (typeof reference === "string") return reference;
+  if (reference?.type === "query_scope" && reference.scope?.start && reference.scope?.end) return `流水 ${reference.scope.start.slice(5, 10)} → ${reference.scope.end.slice(5, 10)}`;
+  return first(reference?.transaction_id, reference?.material_id, reference?.document_id, reference?.query_id, reference?.query_scope_id, reference?.node_id, reference?.ref, reference?.type, `证据 ${index + 1}`);
+}
+function resultPanel() {
+  const body = node("div", "section-body");
+  if (!run().run_id) { body.append(empty("等待开始质检", "运行固定流程或已配置的 DeepSeek Agent，候选与证据将显示在这里。")); return panel("问题与证据", "尚未运行", body); }
+  const warnings = list(run().warnings);
+  warnings.forEach(warning => body.append(node("div", "stale-banner", typeof warning === "string" ? warning : json(warning))));
+  const issueList = node("div", "issue-list");
+  issues().forEach((issue, index) => {
+    const item = node("article", `issue-card ${state.reviewTarget === issue.issue_id ? "selected" : ""}`);
+    append(item, append(node("div", "issue-top"), badge(issue.type || "待核实问题"), node("span", "issue-number", `#${String(index + 1).padStart(2, "0")}`)), node("h3", "", issue.title || label(issue.type)), node("p", "issue-description", label(first(issue.description, issue.reason, "请结合引用证据人工核对。"))), evidenceLinks(issue.evidence));
+    if (issue.type === "unsupported_explanation") item.append(node("p", "review-disclaimer", "模型候选，需人工核对。材料字段是否对应与解释的支持依据是否充分，须分别判断；确定性核验结果见下方明细。"));
+    const decision = !isStale() ? [...reviews()].reverse().find(event => event.target_id === issue.issue_id && event.snapshot_id === run().snapshot_id) : null;
+    const resolutionLabel = issue.type === "manual_extraction" && decision?.resolution === "addressed" ? "抽取已核对" : label(decision?.resolution);
+    const decisionLabel = decision ? ({ confirm: "问题已确认", reconfirm: "已重新确认", reject: "已驳回", close_item: `人工裁决：${resolutionLabel}`, dispute: "争议中", request_correction: "待补正" }[decision.action] || label(decision.action)) : null;
+    append(item, append(node("div", "issue-actions"), decisionLabel ? badge(decisionLabel) : issue.status ? badge(issue.status) : node("span", "muted", "候选 · 待人工判断"), button("处理此项 →", "text", () => { state.reviewTarget = issue.issue_id; renderDetail(); $("#review-action")?.focus(); })));
+    issueList.append(item);
+  });
+  body.append(issueList);
+  if (!issues().length) body.append(node("div", "inline-empty", "本次运行未生成确定问题。仍需核对必需检查、未决事项及资料覆盖，不自动表示质检通过。"));
+  const features = list(run().features);
+  if (features.length) {
+    const section = append(node("div", "result-section"), node("h3", "", "交易形态 · 不是犯罪认定"));
+    features.forEach(feature => {
+      const row = node("div", "feature-row");
+      const name = first(feature.feature_code, feature.code, feature.feature_result_id, "交易特征");
+      const left = append(node("div"), node("strong", "", `${name}${name === "F1" ? " 短时收付集中" : name === "F2" ? " 分散收款集中付款" : ""}`), node("small", "", "使用版本化演示阈值，非监管标准"));
+      append(row, left, badge(first(feature.result, feature.status))); section.append(row);
+      const detail = node("details", "source-details"); append(detail, node("summary", "", "查看计算指标与依据"), pretty(first(feature.metrics, feature)), evidenceLinks(feature.evidence)); section.append(detail);
+    }); body.append(section);
+  }
+  const claimResults = list(run().claim_results);
+  if (claimResults.length || list(run().material_results).length) {
+    const section = append(node("div", "result-section"), node("h3", "", "事实与材料核验明细"));
+    [...claimResults, ...list(run().material_results)].forEach(result => {
+      const claim = list(run().claims).find(item => item.claim_id === result.claim_id);
+      const detail = node("details", "source-details");
+      append(detail, node("summary", "", `${label(result.result || result.execution_status)} · ${first(claim?.text, result.claim_id, result.material_id, result.link_id, "支持关系")}`), pretty(result), evidenceLinks(result.evidence)); section.append(detail);
+    }); body.append(section);
+  }
+  return panel("问题与证据", `${issues().length} 条候选问题`, body);
+}
+function field(text, input) { const result = node("label", "field-label", text); result.append(input); return result; }
+function annotationValues(item) {
+  const review = item.review || {};
+  const values = node("div", "annotation-values");
+  [["机器候选", item.candidate_value ?? item.value], ["人工终值", review.final_value]].forEach(([title, value]) => {
+    const text = title === "人工终值" && review.applicability === "not_applicable" ? "不适用（未赋标签值）" : title === "机器候选" && item.kind === "scope_review" ? "本类无候选，适用性待核对" : annotationValue(value);
+    values.append(append(node("div"), node("span", "", title), node("strong", "", text)));
+  });
+  return values;
+}
+function annotationCorrectionNote(item) {
+  if (item.review?.correction_status !== "pending_source_review") return null;
+  return node("div", "stale-banner", `人工抽取修订待复核。对修订后命题的工具结果：${annotationValue(item.review.proposed_value)}；这不证明修订忠实于原文，尚未形成有效标签。请补正来源后重查。`);
+}
+function annotationPanel() {
+  const body = node("div", "section-body");
+  const records = annotations();
+  const adjudicated = records.filter(item => !isStale() && item.review?.adjudicated).length;
+  const valid = records.filter(item => !isStale() && item.review?.valid).length;
+  const pending = state.detail?.annotation_pending_count;
+  const scopeReviews = records.filter(item => item.kind === "scope_review").length;
+  append(body, node("p", "annotation-intro", "每个标签单独裁决。标签确认不等于问题解决或任务通过；无法裁决时保留未决状态。"), node("div", "annotation-counts", `候选标签 ${records.length - scopeReviews} · 适用性核对 ${scopeReviews} · 当前已裁决 ${adjudicated} · 有效 ${valid} · 必需待裁决 ${compact(pending)}`));
+  records.forEach(item => {
+    const status = annotationStatus(item);
+    const statusBadge = badge(status); statusBadge.textContent = annotationStatusText(status);
+    const card = node("article", "annotation-card");
+    const title = `${label(item.label)} · ${compact(item.target_id)}`;
+    append(card, append(node("div", "issue-top"), node("h3", "", title), statusBadge), node("p", "annotation-meta", `${label(item.kind)} · ${item.required ? "必需标签" : "范围内可选标签"} · ${label(item.origin || "候选来源见明细")}`), annotationValues(item), annotationCorrectionNote(item), evidenceLinks(item.evidence));
+    if (item.review?.reason) card.append(node("p", "issue-description", `人工依据：${item.review.reason}`));
+    const detail = node("details", "source-details");
+    append(detail, node("summary", "", "对象、覆盖、版本与裁决记录"), pretty(item)); card.append(detail);
+    const process = button(status === "needs_review" ? "比较并重新裁决 →" : "裁决此标签 →", "text", () => openAnnotation(item.annotation_id));
+    process.disabled = state.busy || isStale();
+    append(card, append(node("div", "issue-actions"), node("span", "muted", status === "needs_review" ? "历史人工记录保留，不计当前交付" : item.review?.valid ? "有效裁决，仍须满足任务通过门禁" : "尚未形成当前有效交付标签"), process));
+    body.append(card);
+  });
+  if (!records.length) body.append(node("div", "inline-empty", run().run_id ? "当前运行尚无统一标签记录。候选问题仍可在下方处理，旧运行需按最新执行版本重查。" : "运行完成后展示服务端生成的候选标签。"));
+  return panel("标签裁决", "候选 / 人工 / 通过分别记录", body);
+}
+function annotationError(message) { $("#annotation-error").textContent = message; $("#annotation-error").hidden = !message; }
+function openAnnotation(annotationId) {
+  if (state.busy || isStale()) return;
+  const item = annotations().find(record => record.annotation_id === annotationId);
+  if (!item) return;
+  state.annotationTarget = annotationId;
+  $("#annotation-title").textContent = `裁决标签 · ${label(item.label)}`;
+  const context = $("#annotation-context");
+  context.replaceChildren(node("p", "dialog-description", `${compact(item.target_id)} · 快照 ${compact(item.snapshot_id)} · 规范 ${compact(item.schema_version)}`), annotationValues(item));
+  const correctionNote = annotationCorrectionNote(item); if (correctionNote) context.append(correctionNote);
+  if (item.prior_review) context.append(append(node("div", "annotation-prior"), node("strong", "", "上次快照的人工裁决 · 当前无效"), node("p", "", `${annotationValue(item.prior_review.final_value)} · ${compact(item.prior_review.actor)} · ${item.prior_review.reason || ""}`), pretty(item.prior_review.evidence)));
+  if (item.review?.reason) context.append(node("p", "dialog-description", `当前人工记录：${item.review.reason}`));
+  const actions = list(item.allowed_actions);
+  const names = { confirm: "确认机器候选", revise: "修订标签终值", amend: "修订标签终值", abstain: "弃标 / 无法裁决", dispute: "提交争议", reconfirm: "重新确认当前标签", reject: "驳回候选标签", not_applicable: "不适用（说明原文为何没有该类事实；漏抽须补正来源）" };
+  $("#annotation-action").replaceChildren(...actions.map(action => { const option = node("option", "", names[action] || label(action)); option.value = action; return option; }));
+  $("#annotation-value").replaceChildren(...list(item.allowed_values).filter(value => !["undeterminable", "insufficient_evidence", "pending_judgement"].includes(value)).map(value => { const option = node("option", "", annotationValue(value)); option.value = JSON.stringify(value); return option; }));
+  if (list(item.allowed_values).includes(item.value)) $("#annotation-value").value = JSON.stringify(item.value);
+  if (!$("#annotation-value").value) $("#annotation-value").selectedIndex = 0;
+  renderClaimFields(item.editable_claim || item.claim);
+  const primary = list(item.evidence).filter(ref => ref && typeof ref === "object" && !Array.isArray(ref));
+  state.annotationEvidence = [...primary, ...annotations().flatMap(record => list(record.evidence))].filter((ref, index, all) => ref && typeof ref === "object" && !Array.isArray(ref) && all.findIndex(other => json(other) === json(ref)) === index);
+  const choices = $("#annotation-evidence-options"); choices.replaceChildren();
+  state.annotationEvidence.forEach((ref, index) => {
+    const input = node("input"); input.type = "checkbox"; input.value = String(index); input.checked = primary.some(value => json(value) === json(ref));
+    const choice = append(node("div", "annotation-evidence-option"), append(node("label", "check-label"), input, node("span", "", `${evidenceTitle(ref, index)}${input.checked ? " · 本标签候选引用" : " · 当前运行其他引用"}`)));
+    const details = node("details", "source-details"); append(details, node("summary", "", "查看引用内容"), pretty(ref)); choice.append(details); choices.append(choice);
+  });
+  if (!state.annotationEvidence.length) choices.append(node("p", "inline-empty", "当前没有可验证引用。请补证后重查，或记录弃标 / 争议原因。"));
+  $("#annotation-reason").value = ""; $("#save-annotation").disabled = !actions.length;
+  annotationError(""); updateAnnotationAction(); $("#annotation-dialog").showModal();
+}
+function updateAnnotationAction() {
+  const item = annotations().find(record => record.annotation_id === state.annotationTarget);
+  const revising = ["revise", "amend"].includes($("#annotation-action").value);
+  $("#annotation-value-field").hidden = !revising || Boolean(item?.claim);
+  $("#annotation-claim-fields").hidden = !revising || !item?.claim;
+}
+function renderClaimFields(claim) {
+  const target = $("#annotation-claim-fields"); target.replaceChildren();
+  if (!claim) return;
+  target.append(node("p", "dialog-description", "修正抽取字段后由服务端重核。原文文字、次数、金额、对象、方向、限定词或期间变化时，结果仅作为修订命题的核验建议，仍须补正来源后复核；工具支持不证明修订忠实于原文。此处不修改交易或原始文档。"));
+  function inputField(name, title, value, multiline = false) {
+    const input = node(multiline ? "textarea" : "input"); input.dataset.claimField = name; input.value = value ?? ""; input.dataset.original = input.value;
+    if (!multiline) input.type = "text";
+    input.setAttribute("aria-label", title); target.append(field(title, input)); return input;
+  }
+  inputField("quote", "原文陈述（须在当前理由中唯一定位）", claim.text || claim.original_text || "", true);
+  const relocate = node("input"); relocate.type = "checkbox"; relocate.id = "claim-relocate";
+  target.append(append(node("label", "check-label"), relocate, node("span", "", "仅重新定位原文跨度（不改文字与事实字段）")));
+  const direction = select([["", "双向 / 全部方向"], ["in", "转入"], ["out", "转出"]], claim.direction || ""); direction.dataset.claimField = "direction"; direction.dataset.original = direction.value;
+  const operators = ["count", "amount_sum"].includes(claim.kind) ? ["exact", "only", "at_least", "at_most", "exists", "none"] : ["exact", "only", "exists", "none"];
+  const operatorNames = { exact: "恰好 / 精确", only: "仅限", at_least: "至少", at_most: "至多", exists: "存在", none: "不存在" };
+  const operator = select(operators.map(value => [value, operatorNames[value]]), claim.operator || "exact"); operator.dataset.claimField = "operator"; operator.dataset.original = operator.value;
+  target.append(append(node("div", "runner-fields"), field("交易方向", direction), field("原文限定词", operator)));
+  inputField("counterparty_ref", "查询对手（名称或明确账户 token）", claim.counterparty_ref ?? claim.counterparty_token ?? "");
+  inputField("start", "查询起点（含，ISO 时间）", claim.start || "");
+  inputField("end", "查询终点（不含，ISO 时间）", claim.end || "");
+  if (claim.kind === "count") inputField("value", "陈述次数（非负整数）", claim.value ?? "0");
+  if (claim.kind === "amount_sum") inputField("value", "陈述金额（元）", claim.value ?? (Number(claim.value_cents || 0) / 100).toFixed(2));
+  if (claim.kind === "counterparty") inputField("value", "陈述对手集合（用逗号分隔）", Array.isArray(claim.value) ? claim.value.join(", ") : claim.value);
+  if (claim.kind === "time_range") {
+    inputField("value.start", "陈述期间起点（含，ISO 时间）", claim.value?.start);
+    inputField("value.end", "陈述期间终点（不含，ISO 时间）", claim.value?.end);
+  }
+  target.append(node("p", "review-disclaimer", "清空查询对手表示全部可见对手；清空查询起止表示采用案件范围；双向表示不限定交易方向。金额保持元，服务端使用整数分核验。"));
+}
+function readClaimPatch(claim) {
+  const fields = [...document.querySelectorAll("#annotation-claim-fields [data-claim-field]")];
+  const patch = {};
+  fields.forEach(input => {
+    const name = input.dataset.claimField, value = input.value.trim();
+    if (value === input.dataset.original.trim()) return;
+    if (name === "value" && claim.kind === "count") {
+      if (!/^\d+$/.test(value)) throw new Error("陈述次数须为非负整数。");
+      patch.value = Number(value);
+    } else if (name === "value" && claim.kind === "amount_sum") {
+      if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("陈述金额须为非负元数，最多两位小数。");
+      patch.value = value;
+    } else if (name === "value" && claim.kind === "counterparty") {
+      patch.value = value.split(/[,，]/).map(token => token.trim()).filter(Boolean);
+      if (!patch.value.length) throw new Error("请填写至少一个陈述对手。");
+    } else if (name.startsWith("value.")) {
+      patch.value = patch.value || { ...claim.value }; patch.value[name.slice(6)] = value;
+    } else patch[name] = value || null;
+  });
+  if (!Object.keys(patch).length && !$("#claim-relocate")?.checked) throw new Error("请修正事实字段，或勾选仅重新定位原文跨度；保留原候选请使用确认操作。");
+  if (Object.keys(patch).length && $("#claim-relocate")?.checked) throw new Error("仅重新定位不能同时修改文字或事实字段。请恢复原字段，或取消仅重新定位选项。");
+  const quote = fields.find(input => input.dataset.claimField === "quote")?.value.trim();
+  if (!quote) throw new Error("原文陈述不能为空。");
+  patch.quote = quote;
+  if (Object.hasOwn(patch, "counterparty_ref") && claim.counterparty_token) patch.counterparty_token = null;
+  return patch;
+}
+function select(options, value) {
+  const result = node("select"); options.forEach(([key, text, disabled]) => { const option = node("option", "", text); option.value = key; option.disabled = Boolean(disabled); result.append(option); }); result.value = value; return result;
+}
+function runnerPanel() {
+  const body = node("div", "section-body");
+  const provider = select([["local", "确定性演示（非 Agent）"], ["deepseek", "DeepSeek API", !state.config.deepseek_configured]], state.provider);
+  provider.id = "run-provider";
+  const mode = select([["fixed", "固定流程"], ["agent", "Agent 动态取证", state.provider === "local"]], state.mode); mode.id = "run-mode";
+  provider.addEventListener("change", () => { state.provider = provider.value; state.mode = provider.value === "deepseek" ? "agent" : "fixed"; renderDetail(); });
+  mode.addEventListener("change", () => { state.mode = mode.value; });
+  const controls = append(node("div", "runner-fields"), field("执行提供方", provider), field("运行方式", mode)); body.append(controls);
+  const runButton = button(state.busy ? "正在运行，请稍候…" : "开始质检", "primary run-button", () => executeRun("full")); runButton.disabled = state.busy; body.append(runButton);
+  const providerNote = state.provider === "local" ? "下次运行将使用确定性代码演示，不调用模型，也不替代 Agent 验收。当前结果的执行方式见下方轨迹。" : `下次运行将实际调用 ${state.config.model || "DeepSeek"}。工具调用与耗时按真实执行记录，模型候选仍须人工复核。`;
+  body.append(node("p", "runner-note", providerNote));
+  if (!state.config.deepseek_configured) body.append(node("p", "runner-note", state.config.config_error ? "模型配置状态读取失败。修复服务后刷新。" : "DeepSeek 尚未配置。请在服务端环境变量中设置 API 密钥后重启服务，不要将密钥粘贴进案件材料。"));
+  return panel("下次运行配置", state.config.deepseek_configured ? "API 已配置" : "本地演示可用", body);
+}
+function tracePanel() {
+  const body = node("div", "section-body");
+  const trace = list(first(run().trace, run().tool_trace));
+  const provenance = run().agent_verified === true ? "真实 Agent 执行" : run().provider === "local" ? "确定性流程 · 非 Agent" : run().mode === "agent" ? "DeepSeek Agent · 验收未确认" : `${label(run().provider)} · 固定流程`;
+  if (run().run_id) body.append(append(node("div", "trace-header"), node("span", "", provenance), node("span", "", `${trace.length} 条实际记录`)));
+  if (run().provider === "deepseek") body.append(node("p", "source-count", `模型 ${compact(run().execution?.model)} · ${compact(run().stats?.model_calls)} 次模型调用 · ${compact(run().stats?.adaptive_tool_calls)} 次追加工具调用`));
+  const timeline = node("ol", "trace-list");
+  trace.forEach(entry => {
+    const item = node("li", `trace-item ${["completed", "success", "ok", "computed", "reused"].includes(entry.status) ? "success" : entry.status === "failed" ? "failed" : ""}`);
+    append(item, node("strong", "", entry.tool || entry.tool_name || entry.name || "执行步骤"), node("p", "", entry.purpose || entry.description || ""));
+    const time = entry.duration_ms === undefined ? null : node("span", "", `${Number(entry.duration_ms).toFixed(0)} ms`);
+    append(item, append(node("div", "trace-meta"), node("span", "", label(entry.status || "unknown")), entry.round ? node("span", "", `第 ${entry.round} 轮`) : null, time, entry.result_ref ? node("span", "", compact(entry.result_ref)) : null));
+    const detail = node("details"); append(detail, node("summary", "", "参数与返回结果"), pretty({ arguments: entry.arguments || entry.args, result_ref: entry.result_ref, result: entry.result, error: entry.error })); item.append(detail); timeline.append(item);
+  }); body.append(timeline);
+  if (!trace.length) body.append(node("div", "inline-empty", "运行后展示真实工具调用；尚无执行轨迹。"));
+  return panel("工具调用轨迹", "可展开核对", body);
+}
+function reviewPanel() {
+  const form = node("form", "section-body"); form.id = "review-form";
+  const targetOptions = [["task", "整个任务（通过由服务端条件判断）"]];
+  issues().forEach(issue => targetOptions.push([issue.issue_id, `问题：${issue.title || label(issue.type)}`]));
+  openItems().filter(item => item.target_id !== "task").forEach(item => targetOptions.push([item.item_id, `未决：${item.title || label(item.kind)}`]));
+  const uniqueOptions = targetOptions.filter((option, index, all) => option[0] && all.findIndex(item => item[0] === option[0]) === index);
+  if (!uniqueOptions.some(item => item[0] === state.reviewTarget)) state.reviewTarget = issues()[0]?.issue_id || "task";
+  const target = select(uniqueOptions, state.reviewTarget); target.id = "review-target";
+  const actions = ["confirm", "reject", "request_correction", "dispute", "reconfirm", "close_item", "upgrade_lead", "close_lead"];
+  const action = select(actions.map(value => [value, label(value)]), "confirm"); action.id = "review-action";
+  const actor = select([["质检员", "质检员"], ["复核员", "复核员"], ["经办人", "经办人"]], "质检员");
+  const resolution = select([], "");
+  const resolutionField = field("明确裁决结果", resolution); resolutionField.hidden = true;
+  function updateResolution() {
+    resolutionField.hidden = action.value !== "close_item";
+    const type = issues().find(issue => issue.issue_id === target.value)?.type;
+    const options = target.value === "task" ? [["addressed", "任务争议 / 补正已处理"], ["not_applicable", "任务争议 / 补正不适用"]] : type === "manual_focus" ? [["addressed", "已回应"], ["not_addressed", "未回应"]] : type === "manual_extraction" ? [["addressed", "已完整核对抽取结果"]] : type === "manual_material" ? [["corresponds", "对应"], ["mismatch", "不匹配"], ["not_applicable", "不适用"]] : [["addressed", "已回应"], ["not_addressed", "未回应"], ["corresponds", "对应"], ["mismatch", "不匹配"], ["not_applicable", "不适用"]];
+    resolution.replaceChildren(...options.map(([value, text]) => { const option = node("option", "", text); option.value = value; return option; }));
+  }
+  action.addEventListener("change", updateResolution);
+  target.addEventListener("change", () => { state.reviewTarget = target.value; updateResolution(); });
+  updateResolution();
+  const reason = node("textarea"); reason.placeholder = "说明判断依据、补正要求或争议原因"; reason.required = true; reason.maxLength = 4000;
+  const fields = append(node("div", "review-fields"), field("处理对象", target), append(node("div", "runner-fields"), field("人工操作", action), field("演示角色", actor)), resolutionField, field("处理理由（必填）", reason));
+  const submit = button("追加人工记录", "primary run-button"); submit.type = "submit"; submit.disabled = state.busy || !run().run_id;
+  append(form, fields, submit, node("p", "review-disclaimer", "人工记录只追加。确认问题并不解决问题；未决事项须显式裁决或补证。全案通过需满足后端必需检查与当前快照条件。"));
+  form.addEventListener("submit", async event => {
+    event.preventDefault(); if (!reason.value.trim()) return;
+    const payload = { action: action.value, target_id: target.value, actor: actor.value, reason: reason.value.trim() };
+    if (action.value === "close_item") payload.resolution = resolution.value;
+    await mutate(casePath("/reviews"), payload, "人工处理记录已追加，当前状态已刷新。");
+  });
+  return panel("问题与任务处理", "演示角色 / 无生产权限", form);
+}
+function renderWorkbench(target) {
+  const grid = node("div", "workbench");
+  const centerTabs = node("div", "center-tabs");
+  [["issues", `问题与核验 ${issues().length}`], ["annotations", `标签裁决 ${annotations().length}`]].forEach(([value, title]) => {
+    const tab = button(title, "", () => { state.resultTab = value; renderDetail(); }); tab.className = `tab-button ${state.resultTab === value ? "active" : ""}`; tab.setAttribute("aria-pressed", String(state.resultTab === value)); centerTabs.append(tab);
+  });
+  append(grid, append(node("div", "column"), sourcePanel()), append(node("div", "column"), centerTabs, state.resultTab === "annotations" ? annotationPanel() : resultPanel(), requiredPanel()), append(node("div", "column"), runnerPanel(), tracePanel(), reviewPanel())); target.append(grid);
+}
+function requiredPanel() {
+  const checks = list(run().required_checks);
+  const body = node("div", "section-body"); const checklist = node("ul", "checklist");
+  checks.forEach(check => {
+    const manuallyResolved = !isStale() && check.status === "pending_judgement" && Array.isArray(state.detail?.pending_checks) && !state.detail.pending_checks.some(pending => pending.check_id === check.check_id);
+    checklist.append(append(node("li"), node("span", "", check.label || check.check_id), badge(manuallyResolved ? "已人工裁决" : check.status)));
+  }); body.append(checklist);
+  if (!checks.length) body.append(node("div", "inline-empty", "运行后列出本任务的必需检查；无检查清单时不能自动通过。"));
+  return panel("必需检查清单", `${checks.length} 项`, body);
+}
+async function mutate(path, payload, message) {
+  if (state.busy) return false;
+  state.busy = true; renderDetail();
+  try {
+    await api(path, { method: "POST", body: JSON.stringify(payload) });
+    state.busy = false; await refresh(); info(message); return true;
+  } catch (error) { state.busy = false; renderDetail(); info(error.message, true); return false; }
+}
+async function executeRun(strategy) {
+  if (state.provider === "local" && state.mode === "agent") { info("确定性演示不是真实 Agent。请先配置并选择 DeepSeek API。", true); return; }
+  await mutate(casePath("/run"), { mode: state.mode, provider: state.provider, strategy }, "本次运行已返回。请检查执行状态、未决事项与真实调用轨迹。");
+}
+function renderDelivery(target) {
+  const actions = node("div", "delivery-top-actions");
+  const incremental = button(state.busy ? "正在重查…" : "执行增量重查", "primary", () => executeRun("incremental")); incremental.disabled = state.busy;
+  append(actions, incremental, button("全量重查", "secondary", () => executeRun("full")), button("修订来源", "secondary", () => openEditor("source")), node("span", "muted", `当前：${label(state.provider)} / ${label(state.mode)}，可在质检工作区切换`));
+  target.append(actions, node("div", "scope-note", "来源变更先使旧候选失效；重算完成后，仍需人工处理受影响记录。下方数字仅展示后端实际返回的统计。"));
+  target.append(migrationPanel());
+  const grid = node("div", "delivery-grid");
+  const left = node("div", "delivery-stack"); const right = node("div", "delivery-stack");
+  const stats = run().stats || {};
+  const statGrid = node("dl", "metric-grid");
+  [["潜在影响节点", stats.potentially_affected], ["实际重算节点", stats.recomputed], ["复用节点", stats.reused], ["撤销候选", stats.revoked], ["实际工具调用", stats.tool_calls], ["实际模型调用", stats.model_calls]].forEach(([name, value]) => statGrid.append(append(node("div", "metric-block"), node("dt", "", name), node("dd", "", compact(value)))));
+  const metricsBody = append(node("div", "section-body"), statGrid, node("p", "delivery-explain", `输入 tokens：${compact(stats.input_tokens)} · 输出 tokens：${compact(stats.output_tokens)} · 总耗时：${stats.duration_ms === undefined ? "未记录" : `${(stats.duration_ms / 1000).toFixed(2)} 秒`}。节点数不能直接换算为人工或算力节省比例。`));
+  left.append(panel(isStale() ? "上次执行统计（已失效）" : "本次执行统计", run().strategy === "full" ? "全量重查" : run().strategy ? label(run().strategy) : "运行记录", metricsBody));
+  const events = state.detail?.change_events ? list(state.detail.change_events) : reviews().filter(event => event.action === "source_changed" || event.action === "needs_review");
+  const changesBody = node("div", "section-body"); const changes = node("div", "event-list");
+  [...events].reverse().forEach(event => {
+    const card = node("article", "change-event");
+    append(card, append(node("header"), node("h3", "", first(event.title, label(event.action), event.event_type, event.type, "来源或快照变更")), event.data_version ? node("span", "version-label", event.data_version) : null), node("p", "", typeof event.changed_nodes === "object" ? `变更对象：${json(event.changed_nodes)}` : first(event.reason, event.description, event.summary, "")), node("small", "", formatDate(first(event.created_at, event.timestamp, event.time))));
+    const details = node("details", "source-details"); append(details, node("summary", "", "查看完整变更记录"), pretty(event)); card.append(details); changes.append(card);
+  }); changesBody.append(changes);
+  if (!events.length) changesBody.append(node("div", "inline-empty", "尚无来源变更记录。修订理由、材料、覆盖声明或对象映射后，在这里核对新旧版本。"));
+  left.append(panel("来源变化与版本", `${events.length} 条记录`, changesBody));
+  const reviewBody = node("div", "section-body"); const reviewList = node("div", "review-events");
+  [...reviews()].reverse().forEach(event => {
+    const annotationAction = { confirm: "确认标签", reconfirm: "重新确认标签", revise: "修订标签", reject: "驳回标签" }[event.action] || label(event.action);
+    const card = append(node("article", "review-event"), node("strong", "", `${event.annotation_id ? `标签 · ${annotationAction}` : label(event.action)} · ${compact(event.actor)}`), node("p", "", event.reason || "未记录理由"), node("small", "", `${compact(event.target_id)} · ${formatDate(first(event.at, event.created_at, event.timestamp, event.time))}`), event.resolution ? badge(event.resolution) : null);
+    if (event.annotation_id) card.append(node("p", "", `上次人工终值：${annotationValue(event.previous_value)} → 本次人工终值：${event.applicability === "not_applicable" ? "不适用（未赋标签值）" : annotationValue(event.final_value)}`));
+    if (event.correction_status === "pending_source_review") card.append(node("p", "", `人工抽取修订待复核 · 修订命题的工具建议：${annotationValue(event.proposed_value)}，未计入有效标签。`));
+    const detail = node("details", "source-details"); append(detail, node("summary", "", "查看完整事件与证据"), pretty(event)); card.append(detail); reviewList.append(card);
+  }); reviewBody.append(reviewList);
+  if (!reviews().length) reviewBody.append(node("div", "inline-empty", "尚未追加人工操作记录。"));
+  left.append(panel("人工裁决历史", `${reviews().length} 条追加记录`, reviewBody));
+  const unresolvedBody = node("div", "section-body");
+  openItems().forEach(item => {
+    const card = append(node("div", "open-item"), node("h3", "", item.title || label(item.kind)), node("p", "", label(item.reason || item.description || "需要人工处理")), node("small", "", `${compact(item.item_id)} · ${compact(item.target_id)}`), button("前往处理 →", "text", () => { state.reviewTarget = item.target_id === "task" ? "task" : item.item_id; setView("workspace"); $("#review-action")?.focus(); })); unresolvedBody.append(card);
+  });
+  if (!openItems().length) unresolvedBody.append(node("div", "inline-empty", "当前 API 未返回未决事项。是否可通过仍由完整检查清单、来源有效性和人工确认共同决定。"));
+  list(state.detail?.annotation_pending).forEach(item => {
+    const annotation = annotations().find(record => record.annotation_id === item.annotation_id);
+    const action = button("前往标签裁决 →", "text", () => { state.resultTab = "annotations"; setView("workspace"); if (annotation) openAnnotation(annotation.annotation_id); }); action.disabled = isStale();
+    unresolvedBody.append(append(node("div", "open-item"), node("h3", "", annotation ? `标签：${label(annotation.label)}` : "必需标签待裁决"), node("p", "", item.reason || label(item.status)), action));
+  });
+  right.append(panel("未决 / 需重新复核", `${openItems().length} 项业务未决 · ${compact(state.detail?.annotation_pending_count)} 项标签未决`, unresolvedBody), requiredPanel());
+  left.append(annotationPanel());
+  const exportBody = append(node("div", "section-body"), node("p", "export-intro", "导出当前检查范围、来源与规范版本、证据、人工记录及未决事项。历史或待复核记录不得冒充当前已通过结果。"));
+  const exportButton = button("↓ 导出审查记录 JSON", "primary export-button", downloadExport); exportButton.disabled = state.busy; exportBody.append(exportButton);
+  exportBody.append(node("p", "delivery-explain", "是否进入可交付集合由服务端按当前快照与裁决状态判断。本地哈希链仅辅助验证链条一致性，不单独保证不可篡改。")); right.append(panel("版本化交付", "保留检查边界", exportBody));
+  append(grid, left, right); target.append(grid);
+}
+async function openMigration() {
+  const m = state.migration;
+  m.open = !m.open;
+  if (!m.open || m.catalog.length) { renderDetail(); return; }
+  m.loading = true; m.error = ""; renderDetail();
+  try {
+    const data = await api("/api/schemas");
+    m.catalog = list(data.schemas);
+    const base = m.catalog.find(item => list(item.case_ids).includes(state.caseId)) || m.catalog[0];
+    m.baseHash = base?.schema_hash || ""; m.draft = json(base?.schema || data.default_schema || pkg().schema || {});
+  } catch (error) { m.error = error.message; }
+  finally { m.loading = false; renderDetail(); }
+}
+function invalidateMigration() {
+  const m = state.migration;
+  m.preview = null; m.selected = []; m.error = ""; m.requiresRefresh = false;
+  renderMigrationResults();
+}
+function migrationPanel() {
+  const m = state.migration;
+  const body = node("div", "section-body");
+  body.append(node("p", "annotation-intro", "完整规范先预览、明确选择范围，再逐案迁移。未迁移案件保留原规范；迁移后必须另行重查与人工复核。阈值仅为合成演示规则。"));
+  const toggle = button(m.open ? "收起规范迁移" : "预览跨案件规范迁移", "secondary", openMigration); toggle.disabled = m.loading || state.busy; body.append(toggle);
+  if (!m.open) return panel("跨案件规范迁移", "不自动重查", body);
+  if (m.loading) { body.append(node("p", "inline-empty", "正在读取各案件实际采用的完整规范…")); return panel("跨案件规范迁移", "只读载入", body); }
+  const form = node("form", "migration-editor");
+  const base = node("select"); base.id = "migration-base"; base.disabled = state.busy;
+  m.catalog.forEach(item => { const option = node("option", "", `${item.schema_version} · ${item.schema_hash.slice(0, 10)}`); option.value = item.schema_hash; base.append(option); }); base.value = m.baseHash;
+  base.addEventListener("change", () => {
+    m.baseHash = base.value; m.draft = json(m.catalog.find(item => item.schema_hash === base.value)?.schema || {}); invalidateMigration(); renderDetail();
+  });
+  const actor = node("select"); actor.id = "migration-actor"; actor.disabled = state.busy;
+  ["质检员", "复核员"].forEach(value => { const option = node("option", "", value); option.value = value; actor.append(option); }); actor.value = m.actor;
+  actor.addEventListener("change", () => { m.actor = actor.value; invalidateMigration(); });
+  form.append(append(node("div", "runner-fields"), append(node("label", "field-label", "待迁移的原规范"), base), append(node("label", "field-label", "演示操作角色"), actor)));
+  const draft = node("textarea", "code-editor"); draft.id = "migration-schema"; draft.value = m.draft; draft.required = true; draft.spellcheck = false; draft.disabled = state.busy;
+  draft.addEventListener("input", () => { m.draft = draft.value; invalidateMigration(); });
+  form.append(append(node("label", "field-label", "目标完整 Schema JSON（填写新的 schema_version）"), draft));
+  form.append(node("p", "review-disclaimer", "修改阈值后，请同时核对标签定义、正反例与弃标条件。结构校验通过不代表文字说明与规则含义一致。首次预览后版本内容已登记；再改内容须另用新版本名。"));
+  const reason = node("input"); reason.id = "migration-reason"; reason.value = m.reason; reason.required = true; reason.maxLength = 1000; reason.disabled = state.busy; reason.placeholder = "说明规范变化的依据与本次迁移目的";
+  reason.addEventListener("input", () => { m.reason = reason.value; invalidateMigration(); });
+  form.append(append(node("label", "field-label", "迁移依据与理由（必填）"), reason));
+  const preview = button("① 预览相关案件与字段差异", "secondary"); preview.type = "submit"; preview.disabled = state.busy || !m.baseHash;
+  form.append(preview); form.addEventListener("submit", event => { event.preventDefault(); previewMigration([]); }); body.append(form);
+  const results = node("div"); results.id = "migration-results"; body.append(results);
+  fillMigrationResults(results);
+  return panel("跨案件规范迁移", "选择范围 → 逐案执行 → 显式重查", body);
+}
+function migrationSelectionConfirmed() {
+  const m = state.migration;
+  const frozen = list(m.preview?.cases).filter(item => item.selected).map(item => item.case_id).sort();
+  return !m.requiresRefresh && frozen.length > 0 && json(frozen) === json([...m.selected].sort());
+}
+function renderMigrationResults() {
+  const host = $("#migration-results"); if (host) { host.replaceChildren(); fillMigrationResults(host); }
+}
+function migrationDetails(title, content) {
+  const details = node("details", "source-details migration-details");
+  return append(details, node("summary", "", title), content);
+}
+function migrationDiff(changes) {
+  const table = node("table", "small-table migration-diff");
+  table.append(append(node("thead"), append(node("tr"), ...["字段 / 操作", "原值", "目标值"].map(title => node("th", "", title)))));
+  const rows = node("tbody");
+  list(changes).forEach(change => rows.append(append(node("tr"), append(node("td"), node("code", "", change.path), node("small", "muted", change.op)), node("td", "", change.before_exists === false || change.before === undefined ? "（不存在）" : json(change.before)), node("td", "", change.after_exists === false || change.after === undefined ? "（移除）" : json(change.after)))));
+  table.append(rows); return append(node("div", "table-scroll"), table);
+}
+function fillMigrationResults(host) {
+  const m = state.migration;
+  if (m.error) host.append(node("p", "form-error", m.error));
+  if (!m.preview) return;
+  const p = m.preview; const confirmed = migrationSelectionConfirmed();
+  host.append(node("p", "migration-summary", `目标规范 ${compact(p.target_schema?.schema_version)} · ${list(p.cases).length} 个相关案件 · 已选择 ${m.selected.length} 案 · ${m.requiresRefresh ? "预览待刷新，请重新生成" : confirmed ? "范围已冻结，逐案状态见下方" : "先勾选，再生成确认预览"}`));
+  host.append(migrationDetails(`完整目标规范 · ${compact(p.target_schema_hash).slice(0, 12)}`, pretty(p.target_schema)), migrationDetails(`字段差异 · ${list(p.changes).length} 项`, migrationDiff(p.changes)));
+  const freeze = button("② 按所选范围生成确认预览", "primary", () => previewMigration([...m.selected])); freeze.disabled = state.busy || !m.selected.length; host.append(freeze);
+  const records = node("div", "migration-cases");
+  list(p.cases).forEach(item => {
+    const receipt = list(p.receipts).find(entry => entry.case_id === item.case_id);
+    const migrated = Boolean(receipt || item.status === "migrated" || item.status === "applied");
+    const card = node("article", "migration-case"); card.dataset.caseId = item.case_id;
+    const check = node("input"); check.type = "checkbox"; check.checked = m.selected.includes(item.case_id); check.disabled = state.busy || !item.selectable || migrated;
+    check.addEventListener("change", () => { m.selected = check.checked ? [...m.selected, item.case_id] : m.selected.filter(id => id !== item.case_id); renderMigrationResults(); });
+    const heading = append(node("label", "check-label"), check, node("strong", "", `${item.title || item.case_id} · ${item.case_id}`));
+    card.append(append(node("div", "migration-case-heading"), heading, badge(migrated ? "已迁移 · 回执不含重查" : m.requiresRefresh || item.status === "stale" ? "预览待刷新" : item.selected ? "已纳入确认范围" : "未迁移")));
+    card.append(node("p", "annotation-meta", `规范 ${compact(item.current_schema_version)} → ${compact(p.target_schema?.schema_version)} · 来源 ${compact(item.current_source_hash).slice(0, 12)} · 规则 ${list(item.affected_rule_codes).join("、") || "未列出规则变化"}`));
+    card.append(node("p", "annotation-intro", item.requires_full_recheck ? "旧依赖图缺失或已失效：迁移后需全量重查。" : `预览影响 ${list(item.affected_nodes).length} 个节点；实际重算与复用以重查结果为准。`));
+    card.append(migrationDetails(`查看本案差异与影响节点（${list(item.affected_nodes).length}）`, append(node("div"), migrationDiff(item.changes), pretty({ affected_nodes: item.affected_nodes, requires_full_recheck: item.requires_full_recheck }))));
+    const reviewRecords = list(item.review_records);
+    const reviewList = node("ul", "migration-review-list");
+    reviewRecords.forEach(record => {
+      const action = record.annotation_id ? { confirm: "确认标签", reconfirm: "重新确认标签", revise: "修订标签", reject: "驳回标签" }[record.action] || label(record.action) : label(record.action);
+      reviewList.append(append(node("li"), node("strong", "", `${compact(record.target_id)} · ${action} · ${compact(record.actor)}`), node("small", "muted", `记录 ${compact(record.event_id)} / 快照 ${compact(record.snapshot_id)}`)));
+    });
+    card.append(migrationDetails(`旧人工需重新复核清单（${reviewRecords.length}）`, reviewRecords.length ? append(node("div"), reviewList, pretty(reviewRecords)) : node("p", "annotation-intro", "预览未列出旧人工记录；不表示任务已经通过。")));
+    if (list(item.material_link_changes).length || list(item.material_link_warnings).length) {
+      const warnings = append(node("div"), node("p", "annotation-intro", "仅原规范一致的材料绑定可随规范迁移；已有版本冲突保留，须补正并重查，不能自动视为材料对应。"));
+      list(item.material_link_warnings).forEach(warning => warnings.append(node("p", "annotation-prior", `${compact(warning.link_id)}：${warning.message || warning.code}`)));
+      warnings.append(pretty({ changes: item.material_link_changes, warnings: item.material_link_warnings }));
+      const details = migrationDetails("材料规范绑定与冲突", warnings); details.open = list(item.material_link_warnings).length > 0; card.append(details);
+    }
+    if (migrated) {
+      card.append(node("p", "migration-result", "本回执只确认来源迁移。请另行重查并重新裁决，实际完成状态以案件当前记录为准。"));
+      const open = button("打开案件（离线固定流程） →", "secondary", async () => { state.provider = "local"; state.mode = "fixed"; await loadCase(item.case_id, "delivery"); info(item.requires_full_recheck ? "已切换为离线固定流程；本次迁移要求全量重查。请核对当前记录后显式运行，未自动重查。" : "已切换为离线固定流程。请核对当前记录，再显式重查与重新裁决；未自动运行。"); }); open.disabled = state.busy; card.append(open);
+      if (receipt) card.append(migrationDetails("迁移回执", pretty(receipt)));
+    } else {
+      const apply = button("③ 仅迁移此案", "secondary", () => applyMigration(item.case_id));
+      apply.disabled = state.busy || !confirmed || !m.selected.includes(item.case_id) || !item.can_apply; card.append(apply);
+      if (!item.selectable) card.append(node("p", "annotation-intro", `服务端不允许迁移：${compact(item.status)}。请核对完整预览。`));
+    }
+    records.append(card);
+  });
+  host.append(records, node("p", "review-disclaimer", "未选择或未执行的案件保留原规范。任何来源、运行、人工裁决或执行版本变化均可能使预览过期；收到拒绝后必须刷新预览，不自动重试。"));
+}
+async function previewMigration(selected) {
+  if (state.busy) return;
+  const m = state.migration;
+  let schema;
+  try {
+    schema = JSON.parse(m.draft);
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) throw new Error("目标规范必须为完整 JSON 对象。");
+    if (!m.reason.trim()) throw new Error("请填写本次规范迁移的依据与理由。");
+  } catch (error) { m.error = error.message; renderMigrationResults(); return; }
+  state.busy = true; m.error = ""; renderDetail();
+  try {
+    m.preview = await api("/api/migrations/preview", { method: "POST", body: JSON.stringify({ base_schema_hash: m.baseHash, target_schema: schema, selected_case_ids: selected, reason: m.reason.trim(), actor: m.actor }) });
+    m.requiresRefresh = false;
+    m.selected = list(m.preview.cases).filter(item => item.selected).map(item => item.case_id);
+  } catch (error) { m.error = error.message; m.preview = null; }
+  finally { state.busy = false; renderDetail(); }
+}
+async function applyMigration(caseId) {
+  const m = state.migration;
+  if (state.busy || !migrationSelectionConfirmed() || !m.selected.includes(caseId)) return;
+  const preview = m.preview;
+  state.busy = true; m.error = ""; renderDetail();
+  try {
+    const result = await api(`/api/migrations/${encodeURIComponent(preview.preview_id)}/cases/${encodeURIComponent(caseId)}`, { method: "POST", body: JSON.stringify({ preview_hash: preview.preview_hash, actor: m.actor, reason: m.reason.trim() }) });
+    m.preview = result.preview;
+    state.provider = "local"; state.mode = "fixed";
+    state.busy = false; await refresh();
+    info(`${caseId} 已迁移。尚未重查；其余案件仅在逐案执行后改变规范。`);
+  } catch (error) {
+    m.error = `迁移未完成：${error.message}。若预览已过期，请重新生成预览并核对选择范围。`;
+    // Rejected previews must be reviewed again, never silently refreshed and retried.
+    m.selected = []; m.requiresRefresh = true;
+  } finally { state.busy = false; renderDetail(); }
+}
+async function downloadExport() {
+  try {
+    const data = await api(casePath("/export"));
+    const objectUrl = URL.createObjectURL(new Blob([json(data)], { type: "application/json;charset=utf-8" }));
+    const link = node("a"); link.href = objectUrl; link.download = `${state.caseId}-review-export.json`; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    info("已导出服务端当前审查记录。请核对交付状态与未决事项。");
+  } catch (error) { info(error.message, true); }
+}
+function sectionValue(section) {
+  const p = state.editorPackage;
+  if (section === "all") return p;
+  if (section === "narrative" && Array.isArray(p.documents)) return p.documents.filter(document => document.type === "narrative" || document.document_id === "narrative");
+  return p[section] ?? (section === "narrative" ? "" : []);
+}
+function mergeEditorSection(value) {
+  if (state.editorSection === "all") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("完整案件包必须是 JSON 对象。");
+    state.editorPackage = value;
+  } else if (state.editorSection === "narrative" && Array.isArray(state.editorPackage.documents)) {
+    if (!Array.isArray(value)) throw new Error("处置理由文档应为 JSON 数组，请保留 document_id、revision、type 与 text。");
+    let inserted = false;
+    state.editorPackage.documents = state.editorPackage.documents.flatMap(document => {
+      if (document.type !== "narrative" && document.document_id !== "narrative") return [document];
+      if (inserted) return [];
+      inserted = true; return value;
+    });
+    if (!inserted) state.editorPackage.documents.push(...value);
+  } else state.editorPackage[state.editorSection] = value;
+}
+function editorError(message) { $("#editor-error").textContent = message; $("#editor-error").hidden = !message; }
+function openEditor(mode) {
+  if (state.busy) return;
+  state.editorMode = mode; state.editorSection = "all"; state.editorPackage = mode === "import" ? {} : JSON.parse(json(pkg()));
+  $("#editor-title").textContent = mode === "import" ? "导入合成案件" : "修订案件来源";
+  $("#editor-description").textContent = mode === "import" ? "载入符合项目规范的 JSON 案件包。导入时执行校验，发现重复冲突或缺少必要字段时会返回具体错误。" : "来源变更会立即使旧候选失效，并保留原人工裁决。请在修订后重查与重新确认。";
+  $("#editor-section-label").hidden = mode === "import"; $("#source-reason-label").hidden = mode === "import"; $("#source-reason").required = mode !== "import";
+  $("#save-source").textContent = mode === "import" ? "校验并导入案件" : "保存新来源版本";
+  $("#save-source").disabled = false; $("#source-json").value = json(state.editorPackage); $("#source-reason").value = ""; $("#editor-section").value = "all"; $("#synthetic-confirm").checked = false; $("#import-file").value = ""; editorError("");
+  $("#source-dialog").showModal();
+}
+$("#editor-section").addEventListener("change", event => {
+  try {
+    mergeEditorSection(JSON.parse($("#source-json").value)); state.editorSection = event.target.value;
+    $("#source-json").value = json(sectionValue(state.editorSection)); editorError("");
+  } catch (error) { event.target.value = state.editorSection; editorError(`请先修正当前 JSON：${error.message}`); }
+});
+$("#import-file").addEventListener("change", async event => {
+  const file = event.target.files[0]; if (!file) return;
+  if (file.size > 4_900_000) { editorError("当前原型请求体上限为 5 MB，请使用小于 4.9 MB 的 JSON 文件。"); return; }
+  try { const value = JSON.parse(await file.text()); $("#source-json").value = json(value); editorError(""); }
+  catch (error) { editorError(`无法读取 JSON 文件：${error.message}`); }
+});
+$("#source-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!$("#synthetic-confirm").checked) { editorError("请确认这些是合成数据。"); return; }
+  try {
+    mergeEditorSection(JSON.parse($("#source-json").value));
+    const reason = $("#source-reason").value.trim();
+    if (state.editorMode !== "import" && !reason) throw new Error("保存来源变更前必须填写具体理由。");
+    $("#save-source").disabled = true; editorError("");
+    const payload = state.editorMode === "import" ? { package: state.editorPackage } : { package: state.editorPackage, reason };
+    await api(state.editorMode === "import" ? "/api/cases" : casePath("/source"), { method: "POST", body: JSON.stringify(payload) });
+    $("#source-dialog").close();
+    await refresh();
+    if (state.editorMode === "import" && state.editorPackage.case_id) await loadCase(state.editorPackage.case_id, "workspace");
+    else if (state.editorMode !== "import") setView("delivery");
+    info(state.editorMode === "import" ? "合成案件已导入，请开始质检。" : "新来源已保存，旧候选已失效。请执行重查并处理需要重新确认的人工记录。");
+  } catch (error) { editorError(error.message); }
+  finally { $("#save-source").disabled = false; }
+});
+$("#close-editor").addEventListener("click", () => $("#source-dialog").close());
+$("#cancel-editor").addEventListener("click", () => $("#source-dialog").close());
+$("#close-annotation").addEventListener("click", () => $("#annotation-dialog").close());
+$("#cancel-annotation").addEventListener("click", () => $("#annotation-dialog").close());
+$("#annotation-action").addEventListener("change", updateAnnotationAction);
+$("#annotation-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const item = annotations().find(record => record.annotation_id === state.annotationTarget);
+  if (!item || state.busy) return;
+  const action = $("#annotation-action").value;
+  const reason = $("#annotation-reason").value.trim();
+  const evidence = [...document.querySelectorAll("#annotation-evidence-options input:checked")].map(input => state.annotationEvidence[Number(input.value)]);
+  if (!reason) { annotationError("请填写本次裁决的具体依据或无法裁决的原因。"); return; }
+  if (["confirm", "reconfirm", "revise", "amend", "not_applicable"].includes(action) && !evidence.length) { annotationError("确认、修订或判定不适用必须选择可验证证据。资料不足时请补证或记录弃标 / 争议。"); return; }
+  const payload = { action, target_id: item.annotation_id, actor: $("#annotation-actor").value, reason, evidence,
+    snapshot_id: item.snapshot_id, expected_event_id: item.review?.event_id || null };
+  if (["revise", "amend"].includes(action)) {
+    try {
+      if (item.claim) payload.claim_patch = readClaimPatch(item.editable_claim || item.claim);
+      else payload.new_value = JSON.parse($("#annotation-value").value);
+    } catch (error) { annotationError(error.message); return; }
+  }
+  if (action === "reconfirm") payload.previous_event_id = item.prior_review?.event_id || null;
+  state.busy = true; $("#save-annotation").disabled = true; annotationError("");
+  try {
+    await api(casePath("/reviews"), { method: "POST", body: JSON.stringify(payload) });
+    $("#annotation-dialog").close(); state.busy = false; await refresh();
+    info("标签裁决已追加。机器候选保持原样，是否可交付仍由当前任务通过条件决定。");
+  } catch (error) { annotationError(error.message); }
+  finally { state.busy = false; $("#save-annotation").disabled = false; }
+});
+$("#refresh-button").addEventListener("click", refresh);
+$("#import-button").addEventListener("click", () => openEditor("import"));
+$("#task-search").addEventListener("input", renderTasks);
+$("#task-filter").addEventListener("change", renderTasks);
+document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
+$(".brand").addEventListener("click", event => { event.preventDefault(); setView("tasks"); });
+refresh();

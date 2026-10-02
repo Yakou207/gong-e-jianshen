@@ -1,0 +1,46 @@
+# Publish only the runnable product and its regression tests.
+# Research, proposals, review records and Markdown stay local.
+*
+!/.gitignore
+!/.env.example
+!/pyproject.toml
+!/uv.lock
+
+!/aml_qc/
+!/aml_qc/*.py
+
+!/config/
+!/config/schema/
+!/config/schema/S1.0.json
+!/config/prompts/
+!/config/prompts/v2.1/
+!/config/prompts/v2.1/*.txt
+
+!/data/
+!/data/synthetic/
+!/data/synthetic/seed-*.json
+
+!/web/
+!/web/index.html
+!/web/app.js
+!/web/style.css
+
+!/scripts/
+!/scripts/export_case.py
+
+!/tests/
+!/tests/test_*.py
+/tests/test_authoring_preparation.py
+
+# These exclusions apply even if a directory is allowed above.
+**/*.[mM][dD]
+**/*.[mM][aA][rR][kK][dD][oO][wW][nN]
+**/[Rr][Ee][Aa][Dd][Mm][Ee]*
+**/.env
+**/.env.*
+!/.env.example
+**/__pycache__/
+**/*.pyc
+**/*.sqlite3
+**/*.sqlite3-*
+**/.DS_Store

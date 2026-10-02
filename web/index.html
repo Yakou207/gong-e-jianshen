@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>工e鉴审 · 反洗钱甄别质检工作台</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <a class="brand" href="#tasks"><span class="brand-mark" aria-hidden="true">e</span><span>工e鉴审<small>反洗钱甄别质检工作台</small></span></a>
+      <div class="workspace-label">审查工作空间<span>LOCAL</span></div>
+      <nav>
+        <button class="nav-item active" data-view="tasks"><span class="nav-icon" aria-hidden="true">▦</span>质检任务<span class="nav-count" id="nav-count">—</span></button>
+        <button class="nav-item" data-view="workspace"><span class="nav-icon" aria-hidden="true">◎</span>质检工作区</button>
+        <button class="nav-item" data-view="delivery"><span class="nav-icon" aria-hidden="true">↻</span>重查与交付</button>
+      </nav>
+      <div class="sidebar-note"><span class="eyebrow">审查原则</span><p>结论追踪到证据。<br>来源变化，重新复核。<br>人工裁决，完整留痕。</p></div>
+      <div class="sidebar-foot"><span class="status-dot"></span><span>合成数据 · 研究原型<small>v0.4.1 实施基线</small></span></div>
+    </aside>
+    <div class="app-main">
+      <header class="topbar">
+        <div class="breadcrumb">工行杯 / 金融安全服务<span>/</span><strong id="view-label">质检任务</strong></div>
+        <div class="topbar-right"><span id="connection-status" class="connection"><i></i>正在连接本地服务</span><span class="environment">SYNTHETIC ONLY</span></div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div id="notice" role="status" aria-live="polite" hidden></div>
+        <section id="view-tasks" class="view">
+          <div class="page-heading"><div><div class="eyebrow">REVIEW DESK</div><h1>质检任务</h1><p>核对处置理由、交易事实与支持材料，记录每一次判断。</p></div><div class="heading-actions"><button class="button secondary" id="refresh-button">刷新任务</button><button class="button primary" id="import-button"><span aria-hidden="true">＋</span> 导入合成案件</button></div></div>
+          <div class="summary-grid" id="task-summary"></div>
+          <div class="panel task-panel">
+            <div class="panel-toolbar"><div class="panel-title">任务队列<span id="filtered-count" class="muted"></span></div><div class="filters"><label class="search-box"><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="搜索案件编号或名称" aria-label="搜索案件"></label><select id="task-filter" aria-label="人工处理状态"><option value="all">全部人工状态</option><option value="pending">待处理</option><option value="needs_recheck">需重新复核</option><option value="completed">已确认完成</option></select></div></div>
+            <div class="table-scroll"><table class="task-table"><thead><tr><th>案件 / 检查任务</th><th>资料版本</th><th>执行状态</th><th>质检建议</th><th>人工处理</th><th>资料覆盖</th><th><span class="sr-only">打开任务</span></th></tr></thead><tbody id="task-rows"></tbody></table></div><div id="task-empty" class="empty-state" hidden></div>
+          </div>
+          <div class="scope-note"><span class="note-symbol">i</span><p>所有案例均为合成数据。系统形成本次检查范围内的质检建议，人工确认问题不等于问题已解决；质检通过不代表客户不存在洗钱风险。</p></div>
+        </section>
+        <section id="view-workspace" class="view" hidden>
+          <div id="workspace-content"></div>
+        </section>
+        <section id="view-delivery" class="view" hidden>
+          <div id="delivery-content"></div>
+        </section>
+      </main>
+      <footer class="page-footer"><span>证据可定位 · 候选可重查 · 裁决可追溯</span><span>本地原型 / 不接入真实客户数据</span></footer>
+    </div>
+  </div>
+  <dialog id="source-dialog" class="editor-dialog">
+    <form id="source-form">
+      <div class="dialog-heading"><div><div class="eyebrow" id="editor-eyebrow">SOURCE REVISION</div><h2 id="editor-title">修订案件来源</h2></div><button type="button" class="icon-button" id="close-editor" aria-label="关闭编辑器">×</button></div>
+      <p class="dialog-description" id="editor-description">来源变更会立即使旧候选失效，并保留原人工裁决。请在修订后重查与重新确认。</p>
+      <div class="editor-toolbar"><label id="editor-section-label">编辑范围<select id="editor-section"><option value="all">完整案件包</option><option value="narrative">处置理由</option><option value="materials">支持材料</option><option value="coverage">资料覆盖</option><option value="entity_mappings">对象映射</option></select></label><label class="button secondary file-button">从 JSON 文件读取<input type="file" id="import-file" accept="application/json,.json"></label></div>
+      <label class="field-label" for="source-json">案件数据 JSON<span>仅可导入合成数据；材料中的指令式文字不会作为系统指令执行。</span></label>
+      <textarea id="source-json" class="code-editor" spellcheck="false" required></textarea>
+      <div class="editor-bottom"><label id="source-reason-label" class="field-label">变更理由<input id="source-reason" type="text" placeholder="例如：补入遗漏的采购合同，修订材料支持关系" maxlength="1000"></label><label class="check-label"><input type="checkbox" id="synthetic-confirm" required>我确认这些是合成数据，不包含真实客户信息。</label></div>
+      <p id="editor-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancel-editor">取消</button><button type="submit" class="button primary" id="save-source">保存新来源版本</button></div>
+    </form>
+  </dialog>
+  <dialog id="annotation-dialog" class="editor-dialog annotation-dialog" aria-labelledby="annotation-title">
+    <form id="annotation-form">
+      <div class="dialog-heading"><div><div class="eyebrow">ANNOTATION REVIEW</div><h2 id="annotation-title">标签裁决</h2></div><button type="button" class="icon-button" id="close-annotation" aria-label="关闭标签裁决">×</button></div>
+      <div id="annotation-context"></div>
+      <div class="review-fields">
+        <div class="runner-fields"><label class="field-label">人工操作<select id="annotation-action"></select></label><label class="field-label">演示角色<select id="annotation-actor"><option>质检员</option><option>复核员</option><option>经办人</option></select></label></div>
+        <label class="field-label" id="annotation-value-field" hidden>修订后的标签值<select id="annotation-value"></select></label>
+        <div id="annotation-claim-fields" class="review-fields" hidden></div>
+        <fieldset class="annotation-evidence-field"><legend>依据引用</legend><p>选择支持本次裁决的当前来源引用，点击引用可查看原始内容。</p><div id="annotation-evidence-options"></div></fieldset>
+        <label class="field-label">裁决理由（必填）<textarea id="annotation-reason" placeholder="说明采用这些证据的原因、修订依据或无法裁决的原因" required maxlength="4000"></textarea></label>
+      </div>
+      <p class="review-disclaimer">候选值保留原样。标签裁决、问题处理与任务通过分别记录；必需标签弃标仍为未解决事项。</p>
+      <p id="annotation-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancel-annotation">取消</button><button type="submit" class="button primary" id="save-annotation">追加标签裁决</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

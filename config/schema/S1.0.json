@@ -1,0 +1,182 @@
+{
+  "schema_version": "S1.0",
+  "calculator_version": "core-1.0",
+  "purpose": "合成演示规则；阈值不是监管标准；形态不证明洗钱或犯罪。",
+  "features": {
+    "F1": {
+      "minimum_days": 3,
+      "ratio_numerator": 8,
+      "ratio_denominator": 10,
+      "window": "Asia/Shanghai_calendar_day"
+    },
+    "F2": {
+      "minimum_in_counterparties": 10,
+      "minimum_out_counterparties": 1,
+      "maximum_out_counterparties": 2,
+      "ratio_numerator": 8,
+      "ratio_denominator": 10,
+      "window_days": 7,
+      "anchor": "coverage_start"
+    }
+  },
+  "claims": {
+    "kinds": [
+      "count",
+      "amount_sum",
+      "counterparty",
+      "time_range"
+    ],
+    "results": [
+      "supported",
+      "contradicted",
+      "insufficient_evidence"
+    ],
+    "exact_requires_full_coverage": true,
+    "observed_counterexample_can_contradict_partial": true,
+    "name_similarity_resolves_identity": false,
+    "amount_unit": "CNY_fen"
+  },
+  "material_templates": {
+    "single_purchase_payment": {
+      "subject_role": "buyer",
+      "counterparty_role": "seller",
+      "direction": "out",
+      "transaction_count": 1,
+      "amount_relation": "equal",
+      "period_relation": "transactions_within_material",
+      "amount_tolerance_cents": 0
+    },
+    "contract_installments": {
+      "subject_role": "buyer",
+      "counterparty_role": "seller",
+      "direction": "out",
+      "amount_relation": "sum_at_most",
+      "period_relation": "transactions_within_material",
+      "amount_tolerance_cents": 0
+    }
+  },
+  "material_boundary": "仅核对所选关系的字段对应，不核验真伪，不自动判定经济合理性。",
+  "labels": {
+    "F1": {
+      "definition": "在固定自然日窗口内收付比例达到演示条件的完整日窗口至少3个。",
+      "target": "本案单一可见账户及检查期间",
+      "allowed_values": [
+        "met",
+        "not_met",
+        "undeterminable"
+      ],
+      "required_data": [
+        "交易账户、方向、金额、币种、时点及逐窗口覆盖声明"
+      ],
+      "positive_example": "至少3个完整自然日的转入、转出均大于0且转出/转入≥0.8。",
+      "negative_example": "所有应检日完整，只有2天满足条件。",
+      "abstain_when": "可成立与不可成立均受不完整窗口影响，或无任何完整适用日窗口。"
+    },
+    "F2": {
+      "definition": "任一从coverage_start对齐的7天完整窗口，满足演示收付比例及可见对手账户结构。",
+      "target": "本案单一可见账户及检查期间",
+      "allowed_values": [
+        "met",
+        "not_met",
+        "undeterminable"
+      ],
+      "required_data": [
+        "交易账户、方向、金额、币种、时点、对手token及逐字段覆盖"
+      ],
+      "positive_example": "完整7天窗口有10个转入token、2个转出token且转出/转入=0.9。",
+      "negative_example": "所有应检窗口完整，转出token均为3个。",
+      "abstain_when": "没有完整窗口成立，且存在不完整或不足7天的应检窗口。"
+    },
+    "count": {
+      "definition": "核验明确账户、方向、对手及半开时间范围内的交易次数陈述。",
+      "target": "绑定文档修订与跨度的Claim",
+      "allowed_values": [
+        "supported",
+        "contradicted",
+        "insufficient_evidence"
+      ],
+      "required_data": [
+        "可验证原文跨度、准确对象映射、交易ID/账户/时点以及查询用字段的覆盖"
+      ],
+      "positive_example": "完整期间仅查到1笔付款，支持仅支付一次。",
+      "negative_example": "部分期间已经查到3笔付款，矛盾于仅支付一次。",
+      "abstain_when": "部分资料仅查到1笔不能证明仅有1笔；对象不明不执行核验。"
+    },
+    "amount_sum": {
+      "definition": "以整数分核验明确范围内的非负交易金额合计，不由模型计算。",
+      "target": "金额Claim",
+      "allowed_values": [
+        "supported",
+        "contradicted",
+        "insufficient_evidence"
+      ],
+      "required_data": [
+        "count所需范围与对象信息、金额和币种"
+      ],
+      "positive_example": "完整流水合计105000分，与1050.00元一致。",
+      "negative_example": "可见合计已超过陈述的精确总金额。",
+      "abstain_when": "可见金额低于或等于精确总额但覆盖不完整，或字段不可靠。"
+    },
+    "counterparty": {
+      "definition": "核验可见支付账户token的精确集合、仅限集合或存在关系，不推断独立自然人数。",
+      "target": "对手Claim",
+      "allowed_values": [
+        "supported",
+        "contradicted",
+        "insufficient_evidence"
+      ],
+      "required_data": [
+        "明确token或人工确认映射、查询范围与对手字段覆盖"
+      ],
+      "positive_example": "完整付款范围内仅出现已确认映射的supplier-b。",
+      "negative_example": "出现陈述允许集合之外的明确token。",
+      "abstain_when": "同名无明确标识；精确集合所需覆盖不足。"
+    },
+    "time_range": {
+      "definition": "核验指定查询范围内交易时点与陈述半开期间的包含或存在关系；exact在首版明确表示全部时点落入期间，不比较观察极值。",
+      "target": "期间Claim",
+      "allowed_values": [
+        "supported",
+        "contradicted",
+        "insufficient_evidence"
+      ],
+      "required_data": [
+        "可验证原文、查询范围、陈述期间、可靠时点字段"
+      ],
+      "positive_example": "完整目标交易集合的全部时点都落入陈述期间。",
+      "negative_example": "局部流水已有一笔目标交易落在仅限期间之外。",
+      "abstain_when": "未见反例但精确/仅限期间所需范围覆盖不完整。"
+    },
+    "alert_response": {
+      "definition": "判断理由是否回应原预警或人工升级的具体关注点，经济合理性保留人工判断。",
+      "target": "原预警关注点与文档全文",
+      "allowed_values": [
+        "addressed",
+        "not_addressed",
+        "pending_judgement"
+      ],
+      "required_data": [
+        "原关注点、全文及验证过的引用跨度、明确任务模式"
+      ],
+      "positive_example": "理由具体说明关注点所指付款的业务用途并给出核验线索。",
+      "negative_example": "经全文语义判断仍未解释该关注点；不能用关键词未命中代替语义判断。",
+      "abstain_when": "缺原预警、语义不确定、执行或跨度校验失败。"
+    },
+    "material_relation": {
+      "definition": "按选定关系模板核验材料主体、对手、期间及金额与明确交易集合是否对应。",
+      "target": "MaterialLink绑定的材料修订与交易ID集合",
+      "allowed_values": [
+        "corresponds",
+        "mismatch",
+        "insufficient",
+        "pending_judgement"
+      ],
+      "required_data": [
+        "明确模板、材料修订、交易集合、主体角色及标识、对手、期间、金额币种"
+      ],
+      "positive_example": "分期合同3000元，本期付款1050元，角色/对手对应且付款在合同期间内。",
+      "negative_example": "单次采购付款1050元而对应发票金额1000元，超出演示0分容差。",
+      "abstain_when": "缺材料或字段为insufficient；未选模板、规范不一致或例外待确认为pending_judgement。"
+    }
+  }
+}

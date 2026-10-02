@@ -1,0 +1,361 @@
+{
+  "case_id": "seed-01",
+  "case_family": "development-family-01",
+  "task_mode": "alert_review",
+  "subject_account_id": "merchant-001",
+  "profile": {
+    "business_type": "合成日用品零售商户",
+    "data_origin": "synthetic"
+  },
+  "data_version": "1",
+  "coverage_start": "2026-09-01T00:00:00+08:00",
+  "coverage_end": "2026-09-15T00:00:00+08:00",
+  "currency": "CNY",
+  "timezone": "Asia/Shanghai",
+  "schema_version": "S1.0",
+  "coverage": [
+    {
+      "coverage_id": "transactions-all",
+      "source": "transactions",
+      "account_id": "merchant-001",
+      "fields": [
+        "transaction_id",
+        "account_id",
+        "direction",
+        "amount",
+        "currency",
+        "timestamp",
+        "counterparty_token"
+      ],
+      "start": "2026-09-01T00:00:00+08:00",
+      "end": "2026-09-15T00:00:00+08:00",
+      "status": "full",
+      "revision": "1"
+    }
+  ],
+  "counterparties": [
+    {
+      "counterparty_token": "supplier-b",
+      "display_name_masked": "乙公司",
+      "credit_code": "SYNTHETIC-B",
+      "type": "business"
+    },
+    {
+      "counterparty_token": "payer-00",
+      "display_name_masked": "合成付款账户00",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-01",
+      "display_name_masked": "合成付款账户01",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-02",
+      "display_name_masked": "合成付款账户02",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-03",
+      "display_name_masked": "合成付款账户03",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-04",
+      "display_name_masked": "合成付款账户04",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-05",
+      "display_name_masked": "合成付款账户05",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-06",
+      "display_name_masked": "合成付款账户06",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-07",
+      "display_name_masked": "合成付款账户07",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-08",
+      "display_name_masked": "合成付款账户08",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-09",
+      "display_name_masked": "合成付款账户09",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-10",
+      "display_name_masked": "合成付款账户10",
+      "type": "payment_account"
+    },
+    {
+      "counterparty_token": "payer-11",
+      "display_name_masked": "合成付款账户11",
+      "type": "payment_account"
+    }
+  ],
+  "transactions": [
+    {
+      "transaction_id": "seed-01-in-00",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-01T09:00:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-00",
+      "counterparty_name_masked": "合成付款账户00",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-01",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-01T09:01:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-01",
+      "counterparty_name_masked": "合成付款账户01",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-02",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-01T09:02:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-02",
+      "counterparty_name_masked": "合成付款账户02",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-03",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-01T09:03:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-03",
+      "counterparty_name_masked": "合成付款账户03",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-04",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-02T09:00:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-04",
+      "counterparty_name_masked": "合成付款账户04",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-05",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-02T09:01:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-05",
+      "counterparty_name_masked": "合成付款账户05",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-06",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-02T09:02:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-06",
+      "counterparty_name_masked": "合成付款账户06",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-07",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-02T09:03:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-07",
+      "counterparty_name_masked": "合成付款账户07",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-08",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-03T09:00:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-08",
+      "counterparty_name_masked": "合成付款账户08",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-09",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-03T09:01:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-09",
+      "counterparty_name_masked": "合成付款账户09",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-10",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-03T09:02:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-10",
+      "counterparty_name_masked": "合成付款账户10",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-in-11",
+      "account_id": "merchant-001",
+      "direction": "in",
+      "amount": "100.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-03T09:03:00+08:00",
+      "channel": "synthetic_qr",
+      "counterparty_token": "payer-11",
+      "counterparty_name_masked": "合成付款账户11",
+      "memo": "合成零售收款"
+    },
+    {
+      "transaction_id": "seed-01-out-00",
+      "account_id": "merchant-001",
+      "direction": "out",
+      "amount": "1050.00",
+      "currency": "CNY",
+      "timestamp": "2026-09-01T15:00:00+08:00",
+      "channel": "synthetic_transfer",
+      "counterparty_token": "supplier-b",
+      "counterparty_name_masked": "乙公司",
+      "memo": "合成采购货款"
+    }
+  ],
+  "materials": [
+    {
+      "material_id": "purchase-contract",
+      "revision": "1",
+      "material_type": "purchase_contract",
+      "source": "synthetic",
+      "subject": {
+        "account_id": "merchant-001",
+        "role": "buyer"
+      },
+      "counterparty": {
+        "counterparty_token": "supplier-b",
+        "role": "seller"
+      },
+      "period": {
+        "start": "2026-09-01T00:00:00+08:00",
+        "end": "2026-10-01T00:00:00+08:00"
+      },
+      "amount": "1050.00",
+      "currency": "CNY",
+      "text": "合成采购合同，仅用于字段对应核验，不证明材料真伪或全部收款来源。"
+    }
+  ],
+  "material_links": [
+    {
+      "link_id": "purchase-link",
+      "material_id": "purchase-contract",
+      "revision": "1",
+      "claim_or_issue_id": "focus-1",
+      "transaction_ids": [
+        "seed-01-out-00"
+      ],
+      "field_paths": [
+        "subject.account_id",
+        "counterparty.counterparty_token",
+        "period",
+        "amount"
+      ],
+      "relation_template": "single_purchase_payment",
+      "schema_version": "S1.0",
+      "provenance": "synthetic_operator_link"
+    }
+  ],
+  "entity_mappings": [
+    {
+      "mapping_id": "map-supplier-b",
+      "source_ref": "乙公司",
+      "target_token": "supplier-b",
+      "confirmed": true,
+      "revision": "1",
+      "basis": "合成案例中明确的主体标识SYNTHETIC-B；不依据名称相似"
+    }
+  ],
+  "alert": {
+    "alert_id": "alert-01",
+    "revision": "1",
+    "focuses": [
+      {
+        "focus_id": "focus-1",
+        "text": "请核实集中收付的业务背景及向乙公司付款情况。"
+      }
+    ],
+    "original_focus": "请核实集中收付的业务背景及向乙公司付款情况。",
+    "trigger_features": [
+      "F1",
+      "F2"
+    ],
+    "subject_account_id": "merchant-001",
+    "start": "2026-09-01T00:00:00+08:00",
+    "end": "2026-09-15T00:00:00+08:00",
+    "rule_source": "合成演示预警，非监管阈值",
+    "rule_version": "S1.0"
+  },
+  "documents": [
+    {
+      "document_id": "narrative",
+      "revision": "1",
+      "source": "synthetic_operator_statement",
+      "text": "检查期间仅向乙公司支付一次货款，金额为1050.00元，相关采购合同见材料；收款为日用品销售收入，零售订单明细尚未提交。"
+    },
+    {
+      "document_id": "kyc",
+      "revision": "1",
+      "source": "synthetic_unverified_profile",
+      "text": "本例为虚构商户，经营日用品零售。客户自述未经外部核实。"
+    }
+  ],
+  "review_scope": {
+    "target_labels": [
+      "F1",
+      "F2",
+      "count",
+      "material_relation",
+      "alert_response",
+      "amount_sum",
+      "counterparty",
+      "time_range"
+    ]
+  }
+}
