@@ -42,6 +42,9 @@ def lead_basis(case, checks, tool_trace=()):
                 add(prefix + ":" + result[identity], prefix, result, result["evidence"])
     for entry in tool_trace:
         result = entry.get("result", {})
+        if entry["tool"] == "read_schema":
+            # Normative definitions are not observations about this case.
+            continue
         if entry.get("status") != "completed" or not entry.get("result_ref") or result.get("execution_status", "completed") != "completed":
             continue
         if (entry["tool"] == "read_document" and not result.get("document")) or (entry["tool"] == "read_material" and not result.get("material")):
@@ -52,6 +55,9 @@ def lead_basis(case, checks, tool_trace=()):
         if entry["tool"] == "query_transactions":
             evidence.append({"type": "query_scope", "scope": result["scope"], "coverage": result["coverage"],
                              "transaction_ids": result["transaction_ids"]})
+        elif entry["tool"] == "compute_features":
+            for feature in result["features"]:
+                evidence.extend(deepcopy(feature["evidence"]))
         add(ref, "read_tool", {"tool": entry["tool"], "arguments": entry["arguments"], "result": result}, evidence)
     return basis
 

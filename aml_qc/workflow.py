@@ -128,6 +128,9 @@ def tool_definitions():
         ("read_document", "读取当前案件文档。", {"document_id": {"type": "string"}}),
         ("resolve_entity", "用明确标识或已确认映射核实对象，不按名称相似合并。", {"entity": {"type": "string"}}),
         ("check_coverage", "查看来源覆盖声明及缺失范围。", {}),
+        ("read_schema", "读取本案冻结的标签规范和特征阈值；只提供定义，不能作为新增案件事实的依据。", {}),
+        ("compute_features", "按本案冻结规范计算F1/F2，返回逐窗口指标、覆盖状态和交易引用；不改变必需检查范围。",
+         {"feature_code": {"type": "string", "enum": ["F1", "F2"]}}),
     ]
     return [{"type": "function", "function": {"name": name, "description": desc,
              "parameters": {"type": "object", "properties": props, "additionalProperties": False}}}
@@ -159,6 +162,17 @@ def execute_tool(case, schema, evaluator, name, args):
         deps += ["source:entities", "source:transactions"]
         def compute():
             return core.resolve_entity(case, args.get("entity", ""))
+    elif name == "read_schema":
+        def compute():
+            return {"schema": deepcopy(schema), "schema_hash": digest(schema), "evidence_role": "definition_only"}
+    elif name == "compute_features":
+        if args.get("feature_code") not in (None, "F1", "F2"):
+            raise ValueError("feature_code须为F1或F2")
+        deps += ["source:transactions", "source:coverage"]
+        def compute():
+            features = core.compute_features(case, schema)
+            return {"features": [f for f in features if not args.get("feature_code") or f["feature_code"] == args["feature_code"]],
+                    "schema_hash": digest(schema)}
     else:
         deps += ["source:coverage"]
         def compute():
@@ -298,7 +312,7 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
                           "raw_arguments": function.get("arguments"), "round": round_index + 1,
                           "duration_ms": round((perf_counter() - start) * 1000, 3), "purpose": "模型根据已见返回结果选择的追加核查"})
             messages.append({"role": "tool", "tool_call_id": call["id"],
-                             "content": canonical({**result, "lead_basis_ref": trace[-1]["result_ref"]})})
+                             "content": canonical({**result, "lead_basis_ref": trace[-1]["result_ref"] if tool != "read_schema" else None})})
     messages.append({"role": "user", "content": "追加工具预算已耗尽。请返回JSON最终候选；没有核实的事项保持pending_judgement。"})
     return {"semantic": normalize_semantic(case, json_answer(model.complete(messages)), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
 
