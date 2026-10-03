@@ -65,12 +65,13 @@ class DeepSeek:
             record.update(usage=body.get("usage"), model_returned=body.get("model"),
                           system_fingerprint=body.get("system_fingerprint"))
             choice = body["choices"][0]
-            if choice.get("finish_reason") == "length":
-                raise ModelError("模型输出被截断，不能用于业务通过")
             message = choice["message"]
             # Do not retain or display hidden chain-of-thought.
             message = {k: v for k, v in message.items() if k in {"role", "content", "tool_calls"} and v is not None}
-            record.update(status="completed", response=message)
+            record.update(response=message, finish_reason=choice.get("finish_reason"))
+            if choice.get("finish_reason") == "length":
+                raise ModelError("模型输出被截断，不能用于业务通过")
+            record["status"] = "completed"
             return message
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
             record["status"] = "failed"

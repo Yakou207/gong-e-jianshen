@@ -415,7 +415,7 @@ class FreezeAudit:
             "blind_reference_declared_clear": bool(self.exposures) and all(
                 row["declaration_complete"] and not row["declared_exposures"] for row in self.exposures),
             "limitations": ["File hashes and personnel declarations do not authenticate identities, independence, or reference quality.",
-                "No runner or scorer is executed; B0 has no built-in runner in the current product.",
+                "This validator executes no runner or scorer; invoke the saved-run scorer separately after freezing.",
                 "Unresolved reference units remain explicit; this report is not a quality score or paid-cost result.",
                 "Only submitted economic grouping declarations are checked; no automatic proof of family independence or complete Claim semantics.",
                 "Budget checks compare declared ceilings only; no execution-time currency stop or actual-cost reconciliation is implemented."]}

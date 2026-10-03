@@ -94,7 +94,7 @@ def test_complete_freeze_expands_all_runs_and_preserves_unresolved_and_alternati
     assert report["planned_run_count"] == len(expected) == 12
     assert len({r["planned_run_id"] for r in report["planned_runs"]}) == 12
     assert all(r["status"] == "not_run" for r in report["planned_runs"])
-    assert "B0 has no built-in runner" in report["limitations"][1]
+    assert "executes no runner or scorer" in report["limitations"][1]
     assert "do not authenticate" in report["limitations"][0]
 
 

@@ -15,6 +15,8 @@
 !/config/prompts/
 !/config/prompts/v2.3/
 !/config/prompts/v2.3/*.txt
+!/config/prompts/b0-v1/
+!/config/prompts/b0-v1/*.txt
 
 !/data/
 !/data/synthetic/
@@ -28,6 +30,7 @@
 !/scripts/
 !/scripts/export_case.py
 !/scripts/validate_evaluation.py
+!/scripts/score_evaluation.py
 
 !/tests/
 !/tests/test_*.py
