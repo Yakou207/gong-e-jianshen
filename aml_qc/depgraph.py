@@ -21,7 +21,7 @@ def digest(value):
 
 def sources_for(case, schema, execution):
     collections = {"transactions", "documents", "materials", "material_links", "entity_mappings",
-                   "counterparties", "coverage", "alert", "review_scope", "schema", "claims"}
+                   "counterparties", "coverage", "alert", "review_scope", "schema", "claims", "claim_amendments"}
     meta = {k: v for k, v in case.items() if k not in collections | {"data_version", "title"}}
     sources = {
         "metadata": meta, "coverage": case.get("coverage", []),
@@ -29,6 +29,7 @@ def sources_for(case, schema, execution):
         "documents": sorted(case.get("documents", []), key=lambda x: x["document_id"]),
         "materials": sorted(case.get("materials", []), key=lambda x: x["material_id"]),
         "material_links": case.get("material_links", []),
+        "claim_amendments": case.get("claim_amendments", []),
         "entities": {"mappings": case.get("entity_mappings", []), "counterparties": case.get("counterparties", [])},
         "alert": case.get("alert"), "review_scope": case.get("review_scope", {}),
         "schema": schema, "execution": execution,
@@ -105,5 +106,5 @@ class Evaluator:
 
 def business_result(run):
     """Fields compared by independent full/incremental mechanism tests."""
-    return {k: run.get(k) for k in ["features", "claims", "claim_results", "material_results", "semantic_results", "lead_candidates",
+    return {k: run.get(k) for k in ["features", "claims", "machine_claims", "claim_amendments", "superseded_machine_claims", "claim_results", "material_results", "semantic_results", "lead_candidates",
                                   "issues", "open_items", "required_checks", "qc_recommendation", "run_status"]}

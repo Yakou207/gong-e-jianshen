@@ -55,6 +55,27 @@ class MigrationPreviewInput(BaseModel):
     actor: str = Field(default="reviewer", min_length=1, max_length=100)
 
 
+class ClaimProposalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["replace", "add", "retire", "revoke"]
+    target_claim_id: str | None = None
+    proposed_claim: dict | None = None
+    supersedes_amendment_id: str | None = None
+    reason: str = Field(min_length=1, max_length=5000)
+    actor: str = Field(min_length=1, max_length=100)
+    snapshot_id: str
+
+
+class ClaimProposalReviewInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["approve", "reject", "withdraw"]
+    actor: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=5000)
+    snapshot_id: str
+    expected_event_id: str
+    fidelity: Literal["faithful", "not_a_claim", "duplicate"] | None = None
+
+
 class MigrationApplyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     preview_hash: str
@@ -177,6 +198,14 @@ def create_app(db_path=None, seed=True):
     @app.post("/api/cases/{case_id}/reviews")
     def review(case_id: str, body: ReviewInput):
         return store.review(case_id, **body.model_dump())
+
+    @app.post("/api/cases/{case_id}/claim-proposals")
+    def propose_claim(case_id: str, body: ClaimProposalInput):
+        return store.propose_claim(case_id, **body.model_dump())
+
+    @app.post("/api/cases/{case_id}/claim-proposals/{proposal_id}/review")
+    def review_claim_proposal(case_id: str, proposal_id: str, body: ClaimProposalReviewInput):
+        return store.review_claim_proposal(case_id, proposal_id, **body.model_dump())
 
     @app.get("/api/cases/{case_id}/export")
     def export(case_id: str):

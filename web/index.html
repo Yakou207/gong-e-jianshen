@@ -66,13 +66,27 @@
       <div class="review-fields">
         <div class="runner-fields"><label class="field-label">人工操作<select id="annotation-action"></select></label><label class="field-label">演示角色<select id="annotation-actor"><option>质检员</option><option>复核员</option><option>经办人</option></select></label></div>
         <label class="field-label" id="annotation-value-field" hidden>修订后的标签值<select id="annotation-value"></select></label>
-        <div id="annotation-claim-fields" class="review-fields" hidden></div>
         <fieldset class="annotation-evidence-field"><legend>依据引用</legend><p>选择支持本次裁决的当前来源引用，点击引用可查看原始内容。</p><div id="annotation-evidence-options"></div></fieldset>
         <label class="field-label">裁决理由（必填）<textarea id="annotation-reason" placeholder="说明采用这些证据的原因、修订依据或无法裁决的原因" required maxlength="4000"></textarea></label>
       </div>
       <p class="review-disclaimer">候选值保留原样。标签裁决、问题处理与任务通过分别记录；必需标签弃标仍为未解决事项。</p>
       <p id="annotation-error" class="form-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" class="button secondary" id="cancel-annotation">取消</button><button type="submit" class="button primary" id="save-annotation">追加标签裁决</button></div>
+    </form>
+  </dialog>
+  <dialog id="claim-work-dialog" class="editor-dialog claim-work-dialog" aria-labelledby="claim-work-title">
+    <form id="claim-work-form">
+      <div class="dialog-heading"><div><div class="eyebrow">EXTRACTION REVIEW</div><h2 id="claim-work-title">人工抽取作业</h2></div><button type="button" class="icon-button" id="close-claim-work" aria-label="关闭人工抽取作业">×</button></div>
+      <p class="dialog-description">只修订或补录原文中的结构化事实，不改写原文或流水。另一操作人核对原文后才能接受；接受后还须重查和逐项裁决。</p>
+      <div id="claim-work-context"></div>
+      <div id="claim-work-fields" class="review-fields"></div>
+      <div class="review-fields claim-work-identity">
+        <label class="field-label">操作人 ID<input id="claim-work-actor" required maxlength="100" placeholder="填写团队内明确的个人 ID，例如 member-01" autocomplete="off"></label>
+        <p class="review-disclaimer">本地演示未认证身份。不同操作人 ID 只用于分工作业校验，不能代替真实人员权限与独立审核。</p>
+        <label class="field-label">作业理由（必填）<textarea id="claim-work-reason" required maxlength="4000" placeholder="说明为何修订、补录、撤回或作出审核决定"></textarea></label>
+      </div>
+      <p id="claim-work-error" class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" class="button secondary" id="cancel-claim-work">取消</button><button type="submit" class="button primary" id="save-claim-work">提交人工提议</button></div>
     </form>
   </dialog>
 </body>

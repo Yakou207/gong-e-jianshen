@@ -5,6 +5,7 @@ const state = {
   evidence: null, reviewTarget: null, reviewAction: "confirm", provider: "local", mode: "fixed", busy: false,
   editorMode: "source", editorPackage: null, editorSection: "all", loadSerial: 0,
   annotationTarget: null, annotationEvidence: [], resultTab: "issues",
+  claimWork: null,
   migration: { open: false, catalog: [], baseHash: "", draft: "", reason: "", actor: "质检员", preview: null, selected: [], error: "", loading: false, requiresRefresh: false },
 };
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -29,10 +30,11 @@ const dictionary = {
   fixed: "固定流程", agent: "Agent 动态取证", local: "确定性演示", frozen: "离线冻结响应", deepseek: "DeepSeek", incremental: "增量重查", success: "成功", ok: "成功", passed: "通过", valid: "有效",
   count: "次数", amount_sum: "金额合计", counterparty: "对手对象", time_range: "时间范围", narrative: "处置理由", kyc: "客户资料", in: "转入", out: "转出", incoming: "转入", outgoing: "转出",
   feature: "交易特征", claim: "事实核验", semantic: "疑点回应", material: "材料关系", alert_response: "疑点回应", material_relation: "材料关系", revised: "已人工修订", amended: "已人工修订", abstained: "已弃标", abstain: "弃标 / 无法裁决", amend: "修订标签", manual_override: "人工修订", human: "人工", deterministic: "确定性计算",
-  machine_candidate: "运行候选", human_confirmation: "人工确认", human_judgement: "人工语义判断", human_extraction_reverified: "人工抽取修订后重核",
+  machine_candidate: "运行候选", human_confirmation: "人工确认", human_judgement: "人工语义判断", human_extraction_reverified: "人工抽取修订后重核", human_reviewed: "人工抽取后重核",
   scope_review: "本次范围适用性", no_candidate: "本类无候选",
   human_extraction_correction_pending: "人工抽取修订待复核", correction_pending: "人工抽取修订待复核", pending_source_review: "需补正来源后复核",
   schema_migrated: "规范已迁移",
+  claim_proposed: "人工抽取提议已提交", claim_approved: "人工抽取提议已接受", claim_rejected: "人工抽取提议已拒绝", claim_withdrawn: "人工抽取提议已撤回",
 };
 const label = value => dictionary[value] || compact(value);
 function node(tag, className, text) {
@@ -100,6 +102,10 @@ const reviewLead = targetId => leadDispositions().find(lead => lead.lead_id === 
 const openItems = () => list(first(state.detail?.open_items, run().open_items)).filter(item => !["closed", "resolved", "revoked"].includes(item.status));
 const reviews = () => list(state.detail?.review_events);
 const annotations = () => list(state.detail?.annotations);
+const claimProposals = () => list(state.detail?.claim_proposals);
+const claimAmendments = () => list(state.detail?.claim_amendments);
+const claimKinds = () => list(pkg().review_scope?.target_labels || ["count", "amount_sum", "counterparty", "time_range"]).filter(kind => ["count", "amount_sum", "counterparty", "time_range"].includes(kind));
+const canProposeClaim = () => Boolean(run().run_id && !isStale() && !state.busy && state.detail?.audit_integrity?.valid !== false);
 const annotationStatus = item => isStale() ? "needs_review" : item.review?.correction_status === "pending_source_review" ? "correction_pending" : item.review?.status || "candidate";
 const annotationStatusText = status => ({ confirmed: "已确认标签", revised: "已修订标签", amended: "已修订标签", candidate: "候选待裁决", rejected: "候选已驳回", needs_review: "需重新裁决" }[status] || label(status));
 const annotationValue = value => value === undefined || value === null ? "未形成终值" : typeof value === "object" ? json(value) : label(value);
@@ -362,7 +368,7 @@ function resultPanel() {
     [...claimResults, ...list(run().material_results)].forEach(result => {
       const claim = list(run().claims).find(item => item.claim_id === result.claim_id);
       const detail = node("details", "source-details");
-      append(detail, node("summary", "", `${label(result.result || result.execution_status)} · ${first(claim?.text, result.claim_id, result.material_id, result.link_id, "支持关系")}`), pretty(result), evidenceLinks(result.evidence)); section.append(detail);
+      append(detail, node("summary", "", `${claim?.origin === "human_reviewed" ? "人工抽取后重核 · " : ""}${label(result.result || result.execution_status)} · ${first(claim?.text, result.claim_id, result.material_id, result.link_id, "支持关系")}`), pretty(result), evidenceLinks(result.evidence), claim ? claimProposalButtons(claim) : null); section.append(detail);
     }); body.append(section);
   }
   return panel("问题与证据", `${ordinaryIssues.length} 条问题候选`, body);
@@ -399,10 +405,200 @@ function leadPanel() {
   return panel("新增观察线索", `${records.length} 条观察 / 处置记录`, body);
 }
 function field(text, input) { const result = node("label", "field-label", text); result.append(input); return result; }
+function claimProposalButtons(claim) {
+  const actions = node("div", "claim-work-actions");
+  if (!claim) return actions;
+  const amendment = claimAmendments().find(item => list(item.allowed_actions).length && (item.proposed_claim?.claim_id === claim.claim_id || item.target_claim_id === claim.claim_id));
+  if (amendment) {
+    actions.append(node("p", "review-disclaimer", "该事实关联人工抽取版本，可在下方人工抽取作业区重新提议或请求撤销。"));
+    return actions;
+  }
+  [["replace", "提出抽取修订 →"], ["retire", "请求撤除等价重复候选 →"]].forEach(([operation, title]) => {
+    if (operation === "retire" && !hasRetainedDuplicate(claim)) return;
+    const control = button(title, "text", () => openClaimWork({ operation, original: claim, targetClaimId: claim.claim_id }));
+    control.disabled = !canProposeClaim(); actions.append(control);
+  });
+  return actions;
+}
+function hasRetainedDuplicate(claim) {
+  function signature(value) {
+    const kept = Object.fromEntries(Object.entries(value).filter(([key]) => !["claim_id", "origin", "amendment_id", "replaces_claim_id", "unit"].includes(key)));
+    kept.operator ||= "exact";
+    if (kept.kind === "amount_sum") kept.value = String(kept.value).replace(/\.0+$/, "").replace(/(\.\d*?[1-9])0+$/, "$1");
+    const ordered = object => Array.isArray(object) ? object.map(ordered) : object && typeof object === "object" ? Object.fromEntries(Object.keys(object).sort().map(key => [key, ordered(object[key])])) : object;
+    return JSON.stringify(ordered(kept));
+  }
+  return list(run().claims).some(other => other.claim_id !== claim.claim_id && signature(other) === signature(claim));
+}
+function claimWorkError(message) { $("#claim-work-error").textContent = message; $("#claim-work-error").hidden = !message; }
+function claimWorkInput(name, title, value = "", multiline = false) {
+  const input = node(multiline ? "textarea" : "input"); input.dataset.proposedClaim = name; input.value = value ?? "";
+  if (!multiline) input.type = "text";
+  return field(title, input);
+}
+function renderProposedClaimFields(kind, claim = {}) {
+  const root = $("#proposed-claim-fields"); root.replaceChildren();
+  root.append(claimWorkInput("text", "原文引用（复制当前理由中的原话）", claim.text || "", true));
+  const occurrence = select([], ""); occurrence.id = "claim-quote-occurrence";
+  root.append(field("原文位置（重复出现时须明确选择）", occurrence));
+  const direction = select([["", "全部方向"], ["in", "转入"], ["out", "转出"]], claim.direction || ""); direction.dataset.proposedClaim = "direction";
+  const operators = ["count", "amount_sum"].includes(kind) ? ["exact", "only", "at_least", "at_most", "exists", "none"] : ["exact", "only", "exists", "none"];
+  const names = { exact: "恰好 / 精确", only: "仅限", at_least: "至少", at_most: "至多", exists: "存在", none: "不存在" };
+  const operator = select(operators.map(value => [value, names[value]]), operators.includes(claim.operator) ? claim.operator : "exact"); operator.dataset.proposedClaim = "operator";
+  root.append(append(node("div", "runner-fields"), field("查询交易方向", direction), field("原文限定词", operator)), claimWorkInput("counterparty_ref", "查询对手筛选（可留空，不是陈述对手集合）", claim.counterparty_ref || claim.counterparty_token || ""), claimWorkInput("start", "查询起点（含，ISO 时间，可与终点同时留空）", claim.start || ""), claimWorkInput("end", "查询终点（不含，ISO 时间）", claim.end || ""));
+  if (kind === "count") root.append(claimWorkInput("value", "原文陈述次数（非负整数）", claim.value ?? ""));
+  if (kind === "amount_sum") root.append(claimWorkInput("value", "原文陈述金额（元，最多两位小数）", claim.value ?? (claim.value_cents === undefined ? "" : (claim.value_cents / 100).toFixed(2))));
+  if (kind === "counterparty") root.append(claimWorkInput("value", "原文陈述对手集合（用逗号分隔）", Array.isArray(claim.value) ? claim.value.join("，") : claim.value || ""));
+  if (kind === "time_range") root.append(claimWorkInput("value.start", "原文陈述期间起点（含，ISO 时间）", claim.value?.start || ""), claimWorkInput("value.end", "原文陈述期间终点（不含，ISO 时间）", claim.value?.end || ""));
+  root.append(node("p", "review-disclaimer", "查询范围与原文断言范围分别填写；不要把待核验的对手或期间同时当成筛选条件，从而排除反例。查询留空表示本案范围。金额以元填写，由后端按整数分核验。"));
+  $("[data-proposed-claim='text']", root).addEventListener("input", () => updateClaimOccurrences());
+  updateClaimOccurrences(claim.source?.span);
+}
+function updateClaimOccurrences(preferredSpan) {
+  const source = state.claimWork?.document;
+  const quote = $("[data-proposed-claim='text']", $("#proposed-claim-fields"))?.value || "";
+  const positions = [];
+  if (source && quote) {
+    let offset = 0;
+    while ((offset = source.text.indexOf(quote, offset)) !== -1) {
+      const start = Array.from(source.text.slice(0, offset)).length;
+      positions.push([start, start + Array.from(quote).length]); offset += 1;
+    }
+  }
+  const choices = $("#claim-quote-occurrence");
+  const options = positions.map((span, index) => [JSON.stringify(span), `第 ${index + 1} 处 · 字符 ${span[0]}–${span[1]}`]);
+  if (positions.length !== 1) options.unshift(["", positions.length ? "请选择原文中的具体位置" : "原文未找到该引用"]);
+  choices.replaceChildren(...options.map(([value, text]) => { const option = node("option", "", text); option.value = value; return option; }));
+  choices.value = positions.length === 1 ? JSON.stringify(positions[0]) : positions.some(span => json(span) === json(preferredSpan)) ? JSON.stringify(preferredSpan) : "";
+}
+function openClaimWork({ operation, original = null, targetClaimId = null, kind = null, amendment = null }) {
+  if (!canProposeClaim()) return;
+  const doc = documents().find(item => item.document_id === "narrative");
+  state.claimWork = { mode: "propose", operation, original, targetClaimId, amendment, snapshotId: run().snapshot_id, document: doc ? JSON.parse(json(doc)) : null };
+  $("#claim-work-title").textContent = { replace: "提出抽取修订", add: "补录原文中的事实", retire: "请求撤除等价重复候选", revoke: "请求撤销人工抽取版本" }[operation];
+  const context = $("#claim-work-context"); context.replaceChildren();
+  if (doc) context.append(node("p", "field-caption", `当前原文只读 · ${doc.document_id} / 修订 ${doc.revision}`), textWithSpan(String(documentText(doc)), doc));
+  if (original) context.append(append(node("details", "source-details"), node("summary", "", "本轮原事实结构（保留原记录）"), pretty(original)));
+  if (amendment) context.append(node("p", "stale-banner", `本提议关联人工抽取版本 ${amendment.amendment_id}；另人批准前，该版本不会被撤销或替代。`));
+  const fields = $("#claim-work-fields"); fields.replaceChildren();
+  if (["replace", "retire"].includes(operation) && amendment) {
+      const machine = list(run().machine_claims);
+      const options = [["", "请选择当前机器事实"], ...machine.map(claim => [claim.claim_id, `${claim.claim_id} · ${label(claim.kind)} · ${claim.text}`])];
+      const target = select(options, machine.some(claim => claim.claim_id === targetClaimId) ? targetClaimId : ""); target.id = "claim-replacement-target"; fields.append(field("当前机器事实目标", target));
+  }
+  if (["replace", "add"].includes(operation)) {
+    const draft = amendment?.proposed_claim || original || {};
+    const kindSelect = select(claimKinds().map(value => [value, label(value)]), kind || draft.kind || claimKinds()[0]); kindSelect.id = "proposed-claim-kind";
+    fields.append(field("事实类型", kindSelect), node("div", "review-fields", null)); fields.lastElementChild.id = "proposed-claim-fields";
+    kindSelect.addEventListener("change", () => renderProposedClaimFields(kindSelect.value, { text: $("[data-proposed-claim='text']", fields)?.value || draft.text }));
+    renderProposedClaimFields(kindSelect.value, draft);
+  } else fields.append(node("p", "annotation-intro", operation === "retire" ? "仅支持撤除重复抽取，须保留另一条同原文、对象、数值和期间的等价陈述。另一操作人须独立核对。暂不支持凭“并非事实”删除候选；错抽应提出修订。" : "请求撤销上述人工抽取版本。批准后仅恢复由原文产生的正常抽取路径，不修改业务资料；仍须重查。"));
+  $("#claim-work-actor").value = ""; $("#claim-work-reason").value = "";
+  $("#save-claim-work").textContent = "提交人工提议"; $("#save-claim-work").disabled = false;
+  claimWorkError(""); $("#claim-work-dialog").showModal();
+}
+function readProposedClaim() {
+  const values = {};
+  $("#proposed-claim-fields").querySelectorAll("[data-proposed-claim]").forEach(input => { values[input.dataset.proposedClaim] = input.dataset.proposedClaim === "text" ? input.value : input.value.trim(); });
+  const work = state.claimWork, kind = $("#proposed-claim-kind").value;
+  const spanText = $("#claim-quote-occurrence").value;
+  if (!work.document || !spanText) throw new Error("请引用当前理由原文，并选择明确的原文位置。");
+  const span = JSON.parse(spanText);
+  if (Array.from(work.document.text).slice(...span).join("") !== values.text) throw new Error("原文引用或位置已改变，请重新选择。");
+  function validRange(start, end, title) {
+    if (!/T.*(Z|[+-]\d\d:\d\d)$/.test(start) || !/T.*(Z|[+-]\d\d:\d\d)$/.test(end) || !Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end)) || Date.parse(start) >= Date.parse(end)) throw new Error(`${title}须为带时区的 ISO 时间，起点早于终点。`);
+  }
+  const claim = { kind, operator: values.operator, text: values.text, source: { document_id: "narrative", revision: work.document.revision, span } };
+  if (values.direction) claim.direction = values.direction;
+  if (values.counterparty_ref) claim.counterparty_ref = values.counterparty_ref;
+  if (values.start || values.end) { validRange(values.start, values.end, "查询期间"); claim.start = values.start; claim.end = values.end; }
+  if (kind === "count") {
+    const value = values.value || (["exists", "none"].includes(values.operator) ? "0" : "");
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error("陈述次数须为可精确表示的非负整数。"); claim.value = Number(value);
+  } else if (kind === "amount_sum") {
+    const value = values.value || (["exists", "none"].includes(values.operator) ? "0" : "");
+    if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("陈述金额须为非负元数，最多两位小数。"); claim.value = value;
+  } else if (kind === "counterparty") {
+    claim.value = values.value.split(/[,，]/).map(value => value.trim()).filter(Boolean);
+    if (!claim.value.length || new Set(claim.value).size !== claim.value.length) throw new Error("陈述对手集合须非空且不能重复。");
+  } else if (kind === "time_range") {
+    validRange(values["value.start"], values["value.end"], "陈述期间"); claim.value = { start: values["value.start"], end: values["value.end"] };
+  }
+  return claim;
+}
+function openClaimProposalReview(proposal) {
+  if (state.busy || !list(proposal.allowed_actions).length) return;
+  state.claimWork = { mode: "review", proposal: JSON.parse(json(proposal)), snapshotId: run().snapshot_id };
+  $("#claim-work-title").textContent = "核对人工抽取提议";
+  const context = $("#claim-work-context"); context.replaceChildren();
+  const doc = documents().find(item => item.document_id === "narrative");
+  if (doc) context.append(node("p", "field-caption", `当前原文只读 · ${doc.document_id} / 修订 ${doc.revision}`), node("p", "narrative-text", documentText(doc)));
+  context.append(node("p", "annotation-meta", `提议 ${proposal.proposal_id} · 提议人 ${proposal.proposer} · ${proposal.reason || ""}`));
+  if (proposal.original_claim) context.append(append(node("details", "source-details"), node("summary", "", "提议时原事实结构"), pretty(proposal.original_claim)));
+  if (proposal.proposed_claim) context.append(append(node("details", "source-details"), node("summary", "", "待接受的人工事实结构"), pretty(proposal.proposed_claim)));
+  context.append(node("p", "review-disclaimer", "流水与修改后的数值吻合，不证明修改忠实原文。接受只批准人工抽取作业；业务核验与标签裁决随后单独完成。"));
+  if (proposal.preview_verification || proposal.fidelity_assessment) context.append(append(node("details", "source-details"), node("summary", "", "结构检查与核验预览（不是人工终值）"), pretty({ fidelity_assessment: proposal.fidelity_assessment, preview_verification: proposal.preview_verification })));
+  const fields = $("#claim-work-fields"); fields.replaceChildren();
+  const names = { approve: "接受此提议", reject: "拒绝此提议", withdraw: "提议人撤回" };
+  const action = select(list(proposal.allowed_actions).map(value => [value, names[value] || value]), proposal.allowed_actions[0]); action.id = "claim-work-review-action";
+  fields.append(field("审核操作", action));
+  const fidelity = node("div"); fidelity.id = "claim-work-fidelity";
+  if (["replace", "add"].includes(proposal.operation)) {
+    const check = node("input"); check.type = "checkbox"; check.id = "claim-faithful";
+    fidelity.append(append(node("label", "check-label"), check, node("span", "", "我已逐项核对当前原文，确认拟采用的事实类型、对象、期间、数值和限定词忠实于原文")));
+  } else if (proposal.operation === "retire") {
+    const choice = select([["", "请核对仍保留的等价陈述"], ["duplicate", "重复抽取，另一条等价陈述仍保留"]], ""); choice.id = "claim-retire-fidelity"; fidelity.append(field("撤除依据", choice));
+  }
+  fields.append(fidelity, node("p", "review-disclaimer", "接受或拒绝须由提议人以外的操作人提交；只有提议人本人可撤回。过期提议只能由原提议人撤回。"));
+  action.addEventListener("change", updateClaimReviewAction);
+  $("#claim-work-actor").value = ""; $("#claim-work-reason").value = "";
+  $("#save-claim-work").textContent = "提交审核决定"; claimWorkError(""); updateClaimReviewAction(); $("#claim-work-dialog").showModal();
+}
+function updateClaimReviewAction(clearError = true) {
+  if (state.claimWork?.mode !== "review") return;
+  const action = $("#claim-work-review-action").value;
+  $("#claim-work-fidelity").hidden = action !== "approve";
+  const actor = $("#claim-work-actor").value.trim().toLocaleLowerCase(), proposer = state.claimWork.proposal.proposer.trim().toLocaleLowerCase();
+  const wrongActor = actor && (action === "withdraw" ? actor !== proposer : actor === proposer);
+  $("#save-claim-work").disabled = state.busy || !action || Boolean(wrongActor);
+  if (clearError) claimWorkError(wrongActor ? action === "withdraw" ? "只有原提议人可以撤回。" : "接受或拒绝必须由另一操作人完成；请填写实际审核人的个人 ID。" : "");
+}
+function claimWorkPanel() {
+  if (!run().run_id || !claimKinds().length) return null;
+  const body = node("div", "section-body");
+  append(body, node("p", "annotation-intro", "发现错抽或漏抽时，在原文不变的前提下提出人工作业。另一操作人接受后更新抽取版本，随后重查并逐项裁决。工具结果不能代替原文忠实性审核，人工修订不能计作模型准确率提升。"));
+  const add = button("＋ 补录原文中的事实", "secondary small", () => openClaimWork({ operation: "add" })); add.disabled = !canProposeClaim(); body.append(add);
+  const machine = list(run().machine_claims);
+  if (machine.length) {
+    const details = node("details", "source-details"); append(details, node("summary", "", `本轮机器抽取原件（${machine.length}）`), pretty(machine)); body.append(details);
+  }
+  claimProposals().forEach(proposal => {
+    const statusNames = { pending: "待另一操作人审核", approved: "提议已接受", rejected: "提议已拒绝", withdrawn: "提议已撤回", stale: "旧提议已过期" };
+    const operationNames = { replace: "修订抽取", add: "补录事实", retire: "撤除等价重复候选", revoke: "撤销人工抽取版本" };
+    const card = append(node("article", "claim-work-card"), append(node("div", "issue-top"), node("h3", "", operationNames[proposal.operation] || proposal.operation), badge(statusNames[proposal.status] || proposal.status)), node("p", "annotation-meta", `提议人 ${proposal.proposer} · ${proposal.proposal_id}`), node("p", "issue-description", proposal.reason));
+    if (proposal.proposed_claim?.text) card.append(node("p", "narrative-text", proposal.proposed_claim.text));
+    const errors = list(proposal.fidelity_assessment?.blocking_errors);
+    if (errors.length) card.append(node("p", "stale-banner", `存在不能接受的结构或原文问题：${errors.map(item => typeof item === "string" ? item : json(item)).join("；")}`));
+    const details = node("details", "source-details"); append(details, node("summary", "", "原事实、人工提议、预览与审核历史"), pretty(proposal)); card.append(details);
+    if (list(proposal.allowed_actions).length) card.append(button("核对 / 处理提议 →", "text", () => openClaimProposalReview(proposal)));
+    body.append(card);
+  });
+  claimAmendments().forEach(amendment => {
+    const statusNames = { applied: "人工抽取版本已采用", needs_review: "人工抽取版本待复核", revoked: "人工抽取版本已撤销", superseded: "人工抽取版本已替代" };
+    const card = append(node("article", "claim-work-card"), node("h3", "", statusNames[amendment.status] || amendment.status), node("p", "annotation-meta", `${amendment.amendment_id} · 提议 ${compact(amendment.proposer)} / 审核 ${compact(amendment.reviewer)}`), node("p", "issue-description", amendment.reason || ""));
+    const details = node("details", "source-details"); append(details, node("summary", "", "人工版本、原事实及适用依据"), pretty(amendment)); card.append(details);
+    const controls = node("div", "claim-work-actions");
+    if (list(amendment.allowed_actions).includes("supersede")) { const control = button("重新核对并提出替代 →", "text", () => openClaimWork({ operation: amendment.operation, original: amendment.original_claim, targetClaimId: amendment.target_claim_id, amendment })); control.disabled = !canProposeClaim(); controls.append(control); }
+    if (list(amendment.allowed_actions).includes("revoke")) { const control = button("请求撤销此人工版本 →", "text", () => openClaimWork({ operation: "revoke", amendment })); control.disabled = !canProposeClaim(); controls.append(control); }
+    card.append(controls); body.append(card);
+  });
+  if (!claimProposals().length && !claimAmendments().length) body.append(node("p", "inline-empty", "尚无人工抽取提议。已有事实可提出修订，四类事实均可补录漏项。撤除仅支持仍有等价陈述保留的重复候选，暂不支持凭“并非事实”删除。"));
+  return panel("人工抽取作业", "原文核对 / 重查 / 标签分别记录", body);
+}
 function annotationValues(item) {
   const review = item.review || {};
   const values = node("div", "annotation-values");
-  [["机器候选", item.candidate_value ?? item.value], ["人工终值", review.final_value]].forEach(([title, value]) => {
+  [[item.origin === "human_reviewed" ? "人工抽取后重核" : "机器候选", item.candidate_value ?? item.value], ["人工终值", review.final_value]].forEach(([title, value]) => {
     const text = title === "人工终值" && review.applicability === "not_applicable" ? "不适用（未赋标签值）" : title === "机器候选" && item.kind === "scope_review" ? "本类无候选，适用性待核对" : annotationValue(value);
     values.append(append(node("div"), node("span", "", title), node("strong", "", text)));
   });
@@ -410,7 +606,7 @@ function annotationValues(item) {
 }
 function annotationCorrectionNote(item) {
   if (item.review?.correction_status !== "pending_source_review") return null;
-  return node("div", "stale-banner", `人工抽取修订待复核。对修订后命题的工具结果：${annotationValue(item.review.proposed_value)}；这不证明修订忠实于原文，尚未形成有效标签。请补正来源后重查。`);
+  return node("div", "stale-banner", `旧人工抽取修订尚未完成独立复核。工具建议：${annotationValue(item.review.proposed_value)}，不证明修订忠实原文，也未形成有效标签。请通过“提出抽取修订”重新提交给另一操作人，不要为匹配流水改写原文。`);
 }
 function annotationPanel() {
   const body = node("div", "section-body");
@@ -432,6 +628,10 @@ function annotationPanel() {
     const process = button(status === "needs_review" ? "比较并重新裁决 →" : "裁决此标签 →", "text", () => openAnnotation(item.annotation_id));
     process.disabled = state.busy || isStale();
     append(card, append(node("div", "issue-actions"), node("span", "muted", status === "needs_review" ? "历史人工记录保留，不计当前交付" : item.review?.valid ? "有效裁决，仍须满足任务通过门禁" : "尚未形成当前有效交付标签"), process));
+    if (item.kind === "claim") card.append(claimProposalButtons(item.claim));
+    if (item.kind === "scope_review" && claimKinds().includes(item.label)) {
+      const add = button("补录原文中的事实 →", "text", () => openClaimWork({ operation: "add", kind: item.label })); add.disabled = !canProposeClaim(); card.append(add);
+    }
     body.append(card);
   });
   if (!records.length) body.append(node("div", "inline-empty", run().run_id ? "当前运行尚无统一标签记录。候选问题仍可在下方处理，旧运行需按最新执行版本重查。" : "运行完成后展示服务端生成的候选标签。"));
@@ -449,13 +649,12 @@ function openAnnotation(annotationId) {
   const correctionNote = annotationCorrectionNote(item); if (correctionNote) context.append(correctionNote);
   if (item.prior_review) context.append(append(node("div", "annotation-prior"), node("strong", "", "上次快照的人工裁决 · 当前无效"), node("p", "", `${annotationValue(item.prior_review.final_value)} · ${compact(item.prior_review.actor)} · ${item.prior_review.reason || ""}`), pretty(item.prior_review.evidence)));
   if (item.review?.reason) context.append(node("p", "dialog-description", `当前人工记录：${item.review.reason}`));
-  const actions = list(item.allowed_actions);
-  const names = { confirm: "确认机器候选", revise: "修订标签终值", amend: "修订标签终值", abstain: "弃标 / 无法裁决", dispute: "提交争议", reconfirm: "重新确认当前标签", reject: "驳回候选标签", not_applicable: "不适用（说明原文为何没有该类事实；漏抽须补正来源）" };
+  const actions = list(item.allowed_actions).filter(action => !item.claim || !["revise", "amend"].includes(action));
+  const names = { confirm: "确认当前候选", revise: "修订标签终值", amend: "修订标签终值", abstain: "弃标 / 无法裁决", dispute: "提交争议", reconfirm: "重新确认当前标签", reject: "驳回候选标签", not_applicable: "不适用（确认原文没有该类事实；发现漏抽请人工补录）" };
   $("#annotation-action").replaceChildren(...actions.map(action => { const option = node("option", "", names[action] || label(action)); option.value = action; return option; }));
   $("#annotation-value").replaceChildren(...list(item.allowed_values).filter(value => !["undeterminable", "insufficient_evidence", "pending_judgement"].includes(value)).map(value => { const option = node("option", "", annotationValue(value)); option.value = JSON.stringify(value); return option; }));
   if (list(item.allowed_values).includes(item.value)) $("#annotation-value").value = JSON.stringify(item.value);
   if (!$("#annotation-value").value) $("#annotation-value").selectedIndex = 0;
-  renderClaimFields(item.editable_claim || item.claim);
   const primary = list(item.evidence).filter(ref => ref && typeof ref === "object" && !Array.isArray(ref));
   state.annotationEvidence = [...primary, ...annotations().flatMap(record => list(record.evidence))].filter((ref, index, all) => ref && typeof ref === "object" && !Array.isArray(ref) && all.findIndex(other => json(other) === json(ref)) === index);
   const choices = $("#annotation-evidence-options"); choices.replaceChildren();
@@ -472,63 +671,6 @@ function updateAnnotationAction() {
   const item = annotations().find(record => record.annotation_id === state.annotationTarget);
   const revising = ["revise", "amend"].includes($("#annotation-action").value);
   $("#annotation-value-field").hidden = !revising || Boolean(item?.claim);
-  $("#annotation-claim-fields").hidden = !revising || !item?.claim;
-}
-function renderClaimFields(claim) {
-  const target = $("#annotation-claim-fields"); target.replaceChildren();
-  if (!claim) return;
-  target.append(node("p", "dialog-description", "修正抽取字段后由服务端重核。原文文字、次数、金额、对象、方向、限定词或期间变化时，结果仅作为修订命题的核验建议，仍须补正来源后复核；工具支持不证明修订忠实于原文。此处不修改交易或原始文档。"));
-  function inputField(name, title, value, multiline = false) {
-    const input = node(multiline ? "textarea" : "input"); input.dataset.claimField = name; input.value = value ?? ""; input.dataset.original = input.value;
-    if (!multiline) input.type = "text";
-    input.setAttribute("aria-label", title); target.append(field(title, input)); return input;
-  }
-  inputField("quote", "原文陈述（须在当前理由中唯一定位）", claim.text || claim.original_text || "", true);
-  const relocate = node("input"); relocate.type = "checkbox"; relocate.id = "claim-relocate";
-  target.append(append(node("label", "check-label"), relocate, node("span", "", "仅重新定位原文跨度（不改文字与事实字段）")));
-  const direction = select([["", "双向 / 全部方向"], ["in", "转入"], ["out", "转出"]], claim.direction || ""); direction.dataset.claimField = "direction"; direction.dataset.original = direction.value;
-  const operators = ["count", "amount_sum"].includes(claim.kind) ? ["exact", "only", "at_least", "at_most", "exists", "none"] : ["exact", "only", "exists", "none"];
-  const operatorNames = { exact: "恰好 / 精确", only: "仅限", at_least: "至少", at_most: "至多", exists: "存在", none: "不存在" };
-  const operator = select(operators.map(value => [value, operatorNames[value]]), claim.operator || "exact"); operator.dataset.claimField = "operator"; operator.dataset.original = operator.value;
-  target.append(append(node("div", "runner-fields"), field("交易方向", direction), field("原文限定词", operator)));
-  inputField("counterparty_ref", "查询对手（名称或明确账户 token）", claim.counterparty_ref ?? claim.counterparty_token ?? "");
-  inputField("start", "查询起点（含，ISO 时间）", claim.start || "");
-  inputField("end", "查询终点（不含，ISO 时间）", claim.end || "");
-  if (claim.kind === "count") inputField("value", "陈述次数（非负整数）", claim.value ?? "0");
-  if (claim.kind === "amount_sum") inputField("value", "陈述金额（元）", claim.value ?? (Number(claim.value_cents || 0) / 100).toFixed(2));
-  if (claim.kind === "counterparty") inputField("value", "陈述对手集合（用逗号分隔）", Array.isArray(claim.value) ? claim.value.join(", ") : claim.value);
-  if (claim.kind === "time_range") {
-    inputField("value.start", "陈述期间起点（含，ISO 时间）", claim.value?.start);
-    inputField("value.end", "陈述期间终点（不含，ISO 时间）", claim.value?.end);
-  }
-  target.append(node("p", "review-disclaimer", "清空查询对手表示全部可见对手；清空查询起止表示采用案件范围；双向表示不限定交易方向。金额保持元，服务端使用整数分核验。"));
-}
-function readClaimPatch(claim) {
-  const fields = [...document.querySelectorAll("#annotation-claim-fields [data-claim-field]")];
-  const patch = {};
-  fields.forEach(input => {
-    const name = input.dataset.claimField, value = input.value.trim();
-    if (value === input.dataset.original.trim()) return;
-    if (name === "value" && claim.kind === "count") {
-      if (!/^\d+$/.test(value)) throw new Error("陈述次数须为非负整数。");
-      patch.value = Number(value);
-    } else if (name === "value" && claim.kind === "amount_sum") {
-      if (!/^\d+(\.\d{1,2})?$/.test(value)) throw new Error("陈述金额须为非负元数，最多两位小数。");
-      patch.value = value;
-    } else if (name === "value" && claim.kind === "counterparty") {
-      patch.value = value.split(/[,，]/).map(token => token.trim()).filter(Boolean);
-      if (!patch.value.length) throw new Error("请填写至少一个陈述对手。");
-    } else if (name.startsWith("value.")) {
-      patch.value = patch.value || { ...claim.value }; patch.value[name.slice(6)] = value;
-    } else patch[name] = value || null;
-  });
-  if (!Object.keys(patch).length && !$("#claim-relocate")?.checked) throw new Error("请修正事实字段，或勾选仅重新定位原文跨度；保留原候选请使用确认操作。");
-  if (Object.keys(patch).length && $("#claim-relocate")?.checked) throw new Error("仅重新定位不能同时修改文字或事实字段。请恢复原字段，或取消仅重新定位选项。");
-  const quote = fields.find(input => input.dataset.claimField === "quote")?.value.trim();
-  if (!quote) throw new Error("原文陈述不能为空。");
-  patch.quote = quote;
-  if (Object.hasOwn(patch, "counterparty_ref") && claim.counterparty_token) patch.counterparty_token = null;
-  return patch;
 }
 function select(options, value) {
   const result = node("select"); options.forEach(([key, text, disabled]) => { const option = node("option", "", text); option.value = key; option.disabled = Boolean(disabled); result.append(option); }); result.value = value; return result;
@@ -624,7 +766,7 @@ function renderWorkbench(target) {
   [["issues", `问题与核验 ${issues().length}`], ["annotations", `标签裁决 ${annotations().length}`]].forEach(([value, title]) => {
     const tab = button(title, "", () => { state.resultTab = value; renderDetail(); }); tab.className = `tab-button ${state.resultTab === value ? "active" : ""}`; tab.setAttribute("aria-pressed", String(state.resultTab === value)); centerTabs.append(tab);
   });
-  append(grid, append(node("div", "column"), sourcePanel()), append(node("div", "column"), centerTabs, state.resultTab === "annotations" ? annotationPanel() : resultPanel(), leadPanel(), requiredPanel()), append(node("div", "column"), runnerPanel(), tracePanel(), reviewPanel())); target.append(grid);
+  append(grid, append(node("div", "column"), sourcePanel()), append(node("div", "column"), centerTabs, state.resultTab === "annotations" ? annotationPanel() : resultPanel(), claimWorkPanel(), leadPanel(), requiredPanel()), append(node("div", "column"), runnerPanel(), tracePanel(), reviewPanel())); target.append(grid);
 }
 function requiredPanel() {
   const checks = list(run().required_checks);
@@ -703,6 +845,7 @@ function renderDelivery(target) {
   });
   right.append(panel("未决 / 需重新复核", `${openItems().length} 项业务未决 · ${compact(state.detail?.annotation_pending_count)} 项标签未决`, unresolvedBody), requiredPanel());
   left.append(annotationPanel());
+  const claimWork = claimWorkPanel(); if (claimWork) left.append(claimWork);
   const leads = leadPanel(); if (leads) left.append(leads);
   const exportBody = append(node("div", "section-body"), node("p", "export-intro", "导出当前检查范围、来源与规范版本、证据、人工记录及未决事项，包含未升级、已升级及已关闭观察的出处和处置历史。历史或待复核记录不得冒充当前已通过结果。"));
   const exportButton = button("↓ 导出审查记录 JSON", "primary export-button", downloadExport); exportButton.disabled = state.busy; exportBody.append(exportButton);
@@ -930,6 +1073,47 @@ $("#close-editor").addEventListener("click", () => $("#source-dialog").close());
 $("#cancel-editor").addEventListener("click", () => $("#source-dialog").close());
 $("#close-annotation").addEventListener("click", () => $("#annotation-dialog").close());
 $("#cancel-annotation").addEventListener("click", () => $("#annotation-dialog").close());
+$("#close-claim-work").addEventListener("click", () => $("#claim-work-dialog").close());
+$("#cancel-claim-work").addEventListener("click", () => $("#claim-work-dialog").close());
+$("#claim-work-actor").addEventListener("input", updateClaimReviewAction);
+$("#claim-work-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const work = state.claimWork;
+  if (!work || state.busy) return;
+  const actor = $("#claim-work-actor").value.trim(), reason = $("#claim-work-reason").value.trim();
+  if (!actor || !reason) { claimWorkError("请填写明确的操作人 ID 和作业理由。"); return; }
+  let path = casePath("/claim-proposals"), payload;
+  try {
+    if (work.mode === "propose") {
+      payload = { operation: work.operation, actor, reason, snapshot_id: work.snapshotId };
+      if (["replace", "retire"].includes(work.operation)) {
+        payload.target_claim_id = $("#claim-replacement-target")?.value ?? work.targetClaimId;
+        if (!payload.target_claim_id) throw new Error("请选择当前抽取结果中的目标事实。");
+      }
+      if (["replace", "add"].includes(work.operation)) payload.proposed_claim = readProposedClaim();
+      if (work.amendment) payload.supersedes_amendment_id = work.amendment.amendment_id;
+    } else {
+      const proposal = work.proposal, action = $("#claim-work-review-action").value;
+      if (!list(proposal.allowed_actions).includes(action)) throw new Error("当前提议不允许该操作，请刷新后核对。");
+      const sameActor = actor.toLocaleLowerCase() === proposal.proposer.trim().toLocaleLowerCase();
+      if (action === "withdraw" ? !sameActor : sameActor) throw new Error(action === "withdraw" ? "只有原提议人可以撤回。" : "接受或拒绝须由另一操作人完成。");
+      payload = { action, actor, reason, snapshot_id: work.snapshotId, expected_event_id: proposal.expected_event_id || null };
+      if (action === "approve" && ["replace", "add"].includes(proposal.operation)) {
+        if (!$("#claim-faithful").checked) throw new Error("请先逐项核对原文，并明确确认拟采用结构忠实原文。"); payload.fidelity = "faithful";
+      }
+      if (action === "approve" && proposal.operation === "retire") {
+        payload.fidelity = $("#claim-retire-fidelity").value;
+        if (!payload.fidelity) throw new Error("请确认仍保留另一条等价陈述。");
+      }
+      path += `/${encodeURIComponent(proposal.proposal_id)}/review`;
+    }
+    state.busy = true; $("#save-claim-work").disabled = true; claimWorkError("");
+    await api(path, { method: "POST", body: JSON.stringify(payload) });
+    $("#claim-work-dialog").close(); state.busy = false; await refresh();
+    info(work.mode === "propose" ? "人工提议已记录，等待独立原文复核；尚未形成有效标签。" : payload.action === "approve" ? "提议已接受。请按新抽取版本重查，再裁决当前核验标签。" : "审核决定已追加，原文和流水保持原样。");
+  } catch (error) { claimWorkError(error.message); }
+  finally { state.busy = false; $("#save-claim-work").disabled = false; if (work.mode === "review") updateClaimReviewAction(false); }
+});
 $("#annotation-action").addEventListener("change", updateAnnotationAction);
 $("#annotation-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -944,8 +1128,7 @@ $("#annotation-form").addEventListener("submit", async event => {
     snapshot_id: item.snapshot_id, expected_event_id: item.review?.event_id || null };
   if (["revise", "amend"].includes(action)) {
     try {
-      if (item.claim) payload.claim_patch = readClaimPatch(item.editable_claim || item.claim);
-      else payload.new_value = JSON.parse($("#annotation-value").value);
+      payload.new_value = JSON.parse($("#annotation-value").value);
     } catch (error) { annotationError(error.message); return; }
   }
   if (action === "reconfirm") payload.previous_event_id = item.prior_review?.event_id || null;
@@ -953,7 +1136,7 @@ $("#annotation-form").addEventListener("submit", async event => {
   try {
     await api(casePath("/reviews"), { method: "POST", body: JSON.stringify(payload) });
     $("#annotation-dialog").close(); state.busy = false; await refresh();
-    info("标签裁决已追加。机器候选保持原样，是否可交付仍由当前任务通过条件决定。");
+    info("标签裁决已追加。抽取与核验记录保留，是否可交付仍由当前任务通过条件决定。");
   } catch (error) { annotationError(error.message); }
   finally { state.busy = false; $("#save-annotation").disabled = false; }
 });

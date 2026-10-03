@@ -89,7 +89,7 @@ def validate_case(case):
     errors, warnings = [], []
     if not isinstance(case, dict):
         return {"valid": False, "errors": ["案件必须为JSON对象"], "warnings": []}
-    collections = ("transactions", "counterparties", "coverage", "documents", "claims", "materials", "material_links", "entity_mappings")
+    collections = ("transactions", "counterparties", "coverage", "documents", "claims", "materials", "material_links", "entity_mappings", "claim_amendments")
     for key in collections:
         if key in case and (not isinstance(case[key], list) or any(not isinstance(row, dict) for row in case[key])):
             errors.append(f"{key}必须为JSON对象数组")
@@ -155,6 +155,32 @@ def validate_case(case):
                     errors.append("线索处置事件不可重复")
     if case.get("currency") != "CNY":
         errors.append("首版仅支持CNY")
+    amendment_ids, replaced = set(), set()
+    for record in case.get("claim_amendments", []):
+        fields = ("amendment_id", "context_hash", "proposal_event_id", "approval_event_id", "proposer", "reviewer",
+                  "proposal_reason", "reason", "base_source_hash", "base_run_id", "base_snapshot_id", "created_at")
+        if any(not isinstance(record.get(key), str) or not record[key].strip() for key in fields):
+            errors.append("人工陈述修订须保留完整提议、审核、理由和来源版本绑定")
+        if record.get("operation") not in {"replace", "add", "retire", "revoke"}:
+            errors.append("人工陈述修订操作无效")
+        if isinstance(record.get("amendment_id"), str) and record["amendment_id"] in amendment_ids:
+            errors.append("人工陈述修订ID不可重复")
+        prior = record.get("supersedes_amendment_id")
+        if prior is not None and (not isinstance(prior, str) or prior not in amendment_ids or prior in replaced):
+            errors.append("人工陈述修订只能替代此前尚未被替代的记录")
+        if record.get("operation") == "revoke" and not prior:
+            errors.append("撤销人工陈述修订须指定此前记录")
+        proposer, reviewer = record.get("proposer"), record.get("reviewer")
+        if isinstance(proposer, str) and isinstance(reviewer, str) and proposer.strip().casefold() == reviewer.strip().casefold():
+            errors.append("人工陈述修订须由不同人员提议和审核")
+        if record.get("operation") in {"replace", "add"} and not isinstance(record.get("proposed_claim"), dict):
+            errors.append("人工新增或替换须保留新陈述")
+        if record.get("operation") in {"replace", "retire"} and (not isinstance(record.get("original_claim"), dict) or not isinstance(record.get("target_claim_id"), str)):
+            errors.append("人工替换或废弃须保留原机器陈述及目标")
+        if isinstance(record.get("amendment_id"), str):
+            amendment_ids.add(record["amendment_id"])
+        if isinstance(prior, str):
+            replaced.add(prior)
     if case.get("timezone") != "Asia/Shanghai":
         errors.append("首版时间窗口固定Asia/Shanghai")
     bounds = None

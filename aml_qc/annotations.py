@@ -76,12 +76,14 @@ def build_annotations(run, package):
                    for key in ('account_id', 'start', 'end', 'direction', 'counterparty_ref', 'counterparty_token')}
             obj['account_id'] = obj['account_id'] or package['subject_account_id']
             add('claim', claim['kind'], 'claim:' + item['claim_id'], {**item, 'object': obj}, item['result'], claim=deepcopy(claim))
+            records[-1]['origin'] = claim.get('origin', 'machine_candidate')
+            records[-1]['amendment_id'] = claim.get('amendment_id')
     for item in run.get('material_results', []):
         link = links.get(item.get('link_id'), {})
         material = next((m for m in package.get('materials', []) if m['material_id'] == link.get('material_id')
                          and m['revision'] == link.get('revision', link.get('material_revision'))), None)
         transaction_ids = {r['transaction_id'] for r in package.get('transactions', [])}
-        can_judge = bool(item['result'] == 'pending_judgement' and material_judgement_inputs_complete(package, material, link, schema)
+        can_judge = bool(item['result'] == 'pending_judgement' and item.get('binding_status') != 'needs_review' and material_judgement_inputs_complete(package, material, link, schema)
                          and link.get('transaction_ids') and set(link['transaction_ids']) <= transaction_ids)
         obj = {'account_id': package['subject_account_id'], 'material_id': link.get('material_id'),
                'transaction_ids': sorted(link.get('transaction_ids', [])), 'relation_template': link.get('relation_template')}

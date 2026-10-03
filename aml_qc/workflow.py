@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
 from . import core
+from .claim_edits import merge_claim_amendments
 from .depgraph import Evaluator, canonical, digest, sources_for
 from .contracts import ClaimOutput, ExtractionOutput, SemanticOutput, contract_schemas
 from .ingest import validate_case
@@ -21,15 +22,15 @@ from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "workflow-2.0"
-PROMPT_VERSION = "claims-response-2.2"
-PROMPT_ROOT = ROOT / "config/prompts/v2.2"
+PROMPT_VERSION = "claims-response-2.3"
+PROMPT_ROOT = ROOT / "config/prompts/v2.3"
 BASE_SYSTEM = (PROMPT_ROOT / "base.txt").read_text().strip()
 EXTRACT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "extraction.txt").read_text().strip()
 SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
 AGENT_SYSTEM = SEMANTIC_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip()
 IMPLEMENTATION_HASH = digest({name: (ROOT / "aml_qc" / name).read_text() for name in
                               ["core.py", "ingest.py", "schema.py", "depgraph.py", "workflow.py", "llm.py", "contracts.py",
-                               "annotations.py", "store.py", "exports.py", "api.py", "migrations.py", "leads.py"]})
+                               "annotations.py", "store.py", "exports.py", "api.py", "migrations.py", "leads.py", "claim_edits.py"]})
 
 
 def default_schema():
@@ -321,7 +322,8 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
     evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
     started = perf_counter()
     result = {"case_id": case["case_id"], "mode": mode, "provider": provider, "strategy": strategy,
-              "features": [], "claims": [], "claim_results": [], "material_results": [], "semantic_results": [], "lead_candidates": [], "issues": [],
+              "features": [], "claims": [], "machine_claims": [], "claim_amendments": [], "superseded_machine_claims": [],
+              "claim_results": [], "material_results": [], "semantic_results": [], "lead_candidates": [], "issues": [],
               "schema_version": schema["schema_version"],
               "open_items": [], "required_checks": [], "warnings": list(validation["warnings"]),
               "agent_verified": False, "execution": execution}
@@ -357,17 +359,30 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                     {"role": "system", "content": EXTRACT_SYSTEM},
                     {"role": "user", "content": canonical({"document": narrative(case), "account": case["subject_account_id"],
                       "start": case["coverage_start"], "end": case["coverage_end"]})}]))))
-            result["claims"] = [c for c in extraction["claims"] if c["kind"] in labels]
+            result["machine_claims"] = [c for c in extraction["claims"] if c["kind"] in labels]
+            effective = evaluator.evaluate("effective_claims", "apply_human_claims", {},
+                ["extraction", "source:claim_amendments", "source:documents", "source:entities", "source:metadata", "source:schema", "source:execution"],
+                lambda: merge_claim_amendments(case, result["machine_claims"]))
+            result["claims"] = effective["claims"]
+            result["claim_amendments"] = effective["amendments"]
+            result["superseded_machine_claims"] = effective["superseded_machine_claims"]
+            for amendment in effective["amendments"]:
+                if amendment["status"] == "needs_review":
+                    target = "human_claim:" + amendment["amendment_id"]
+                    check(target, "人工抽取忠实性待重新核对", "pending_judgement")
+                    issue("manual_claim_review", "人工抽取需重新审核", amendment["reason"], target, [doc_evidence(case)])
             check("extraction", "文本事实抽取", "pending_judgement" if extraction["unresolved"] else "completed")
             if extraction["unresolved"]:
                 issue("manual_extraction", "需人工核对事实抽取", "; ".join(map(str, extraction["unresolved"])), "extraction", [doc_evidence(case)])
         except ModelError as exc:
+            result["claim_amendments"] = [{**deepcopy(r), "status": "needs_review", "allowed_actions": ["supersede", "revoke"],
+                "reason": "抽取失败，未将人工提议视为已生效结果"} for r in case.get("claim_amendments", [])]
             check("extraction", "文本事实抽取", "failed")
             issue("execution_failed", "事实抽取失败", str(exc), "extraction", [])
         for claim in result["claims"]:
             target = "claim:" + claim["claim_id"]
             verified = evaluator.evaluate(target, "verify_claim", claim,
-                ["extraction", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution"],
+                ["effective_claims", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution"],
                 lambda c=claim: core.verify_claim(case, c, schema))
             result["claim_results"].append(verified)
             status = verified.get("execution_status", "completed")
@@ -376,9 +391,22 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                 issue("claim_error" if verified["result"] == "contradicted" else "claim_unresolved", "事实矛盾" if verified["result"] == "contradicted" else "事实待核实",
                       verified.get("reason", verified["result"]), target, verified.get("evidence", []))
         if "material_relation" in labels:
+            def check_bound_materials():
+                rows = core.check_materials(case, schema=schema)
+                valid_targets = {c['claim_id'] for c in result['claims']} | {f['focus_id'] for f in focuses_for(case)}
+                valid_targets |= {'claim:' + c['claim_id'] for c in result['claims']}
+                changed_targets = {r['claim']['claim_id'] for r in result['superseded_machine_claims']}
+                changed_targets |= {'claim:' + target for target in list(changed_targets)}
+                for row in rows:
+                    target = row.get('claim_or_issue_id')
+                    if target in changed_targets or (target and target not in valid_targets):
+                        row.update(field_result=row['result'], result='insufficient', binding_status='needs_review',
+                                   reason='材料关系所指陈述已替换、撤销或不存在，须明确修订支持对象后重查')
+                return rows
             material_results = evaluator.evaluate("materials", "check_materials", {},
-                ["source:materials", "source:material_links", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution"],
-                lambda: core.check_materials(case, schema=schema))
+                ["source:materials", "source:material_links", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution", "source:claim_amendments"]
+                    + (["effective_claims"] if "effective_claims" in evaluator.nodes else []),
+                check_bound_materials)
             result["material_results"] = material_results
             check("materials", "材料支持关系", "failed" if any(m.get("execution_status") == "failed" for m in material_results) else "completed")
             for material in material_results:
@@ -470,7 +498,7 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
     result["model_requests"] = list(getattr(model, "calls", []))
     usage_complete = all(isinstance(r.get("usage"), dict) and all(isinstance(r["usage"].get(k), int)
         for k in ["prompt_tokens", "completion_tokens"]) for r in result["model_requests"])
-    result["stats"] = {**evaluator.stats(), "tool_calls": sum(t["status"] == "computed" and t["tool"] not in {"extract_claims", "semantic_review", "agent_stage"} for t in evaluator.trace),
+    result["stats"] = {**evaluator.stats(), "tool_calls": sum(t["status"] == "computed" and t["tool"] not in {"extract_claims", "apply_human_claims", "semantic_review", "agent_stage"} for t in evaluator.trace),
         "adaptive_tool_calls": sum(t["status"] != "reused" for t in agent_trace),
         "replayed_tool_calls": sum(t["status"] == "reused" for t in agent_trace),
         "adaptive_tools_completed": sum(t["status"] == "completed" for t in agent_trace),

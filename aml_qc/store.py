@@ -7,11 +7,11 @@ import sqlite3
 from uuid import uuid4
 
 from .annotations import annotation_pending, apply_reviews, build_annotations, prepare_decision, resolved_targets
-from .core import check_coverage
+from .core import check_coverage, verify_claim
 from .depgraph import canonical, digest
 from .ingest import validate_case
 from .leads import lead_context_hash
-from . import migrations
+from . import claim_edits, migrations
 from .workflow import IMPLEMENTATION_HASH, default_schema, focus_evidence
 
 
@@ -71,6 +71,33 @@ def lead_disposition_records(package, candidates, historical_candidates=(), exec
     return records
 
 
+def claim_proposal_records(events, source_hash, run, *, stale, integrity):
+    """Derive proposal state from immutable events; obsolete proposals stay visible."""
+    histories = {}
+    for event in events:
+        if event.get("action") in {"claim_proposed", "claim_approved", "claim_rejected", "claim_withdrawn"}:
+            histories.setdefault(event["proposal_id"], []).append(event)
+    proposals = []
+    for history in histories.values():
+        submitted, latest = history[0], history[-1]
+        if submitted["action"] != "claim_proposed":
+            continue
+        current = bool(run and not stale and submitted["base_source_hash"] == source_hash
+                       and submitted["base_run_id"] == run["run_id"]
+                       and submitted["base_snapshot_id"] == run["snapshot_id"])
+        status = {"claim_proposed": "pending", "claim_approved": "approved", "claim_rejected": "rejected",
+                  "claim_withdrawn": "withdrawn"}[latest["action"]]
+        if status == "pending" and not current:
+            status = "stale"
+        actions = ["approve", "reject", "withdraw"] if status == "pending" else ["withdraw"] if status == "stale" else []
+        if not run or stale or not integrity:
+            actions = []
+        proposals.append({**submitted, "status": status, "current": current,
+                          "expected_event_id": latest["event_id"], "allowed_actions": actions,
+                          "history": history})
+    return proposals
+
+
 class Store:
     def __init__(self, path):
         self.path = str(path)
@@ -101,6 +128,8 @@ class Store:
         package = deepcopy(package)
         package.setdefault("schema", default_schema())
         self.validate(package)
+        if package.get("claim_amendments"):
+            raise ValueError("导入不可携带人工陈述修订；请在当前快照发起提议并由另一人员审核")
         if any(package.get("review_scope", {}).get(key) for key in ("lead_dispositions", "upgraded_leads")):
             raise ValueError("导入不可携带人工线索处置；请在当前快照执行升级或关闭")
         package["transactions"] = list({r["transaction_id"]: r for r in package.get("transactions", [])}.values())
@@ -169,6 +198,7 @@ class Store:
                               run["execution"].get("implementation_hash") != IMPLEMENTATION_HASH)
         stale = bool(run and (run["source_hash"] != row["source_hash"] or engine_changed))
         integrity = audit_integrity(events)
+        proposals = claim_proposal_records(events, row["source_hash"], run, stale=stale, integrity=integrity["valid"])
         annotations = apply_reviews((run or {}).get("annotations") or build_annotations(run, run_package), events,
                                     stale=stale, integrity=integrity["valid"])
         label_pending = annotation_pending(annotations)
@@ -179,6 +209,12 @@ class Store:
                               and e.get("action") in {"confirm", "reconfirm", "dispute", "request_correction", "close_item"}]
         source_task = source_task_events[-1] if source_task_events else {}
         open_items = []
+        for proposal in proposals:
+            if proposal["status"] == "pending":
+                open_items.append({"item_id": "claim-proposal:" + proposal["proposal_id"],
+                    "target_id": "claim-proposal:" + proposal["proposal_id"], "kind": "claim_proposal_pending",
+                    "title": "人工陈述提议待独立审核", "reason": proposal["reason"],
+                    "proposal_id": proposal["proposal_id"]})
         for item in (run or {}).get("open_items", []):
             if item["target_id"] in resolved and item.get("kind") in {"claim_error", "claim_unresolved", "manual_focus", "focus_not_addressed", "manual_material"}:
                 continue
@@ -228,6 +264,7 @@ class Store:
                 "review_status": status, "can_pass": can_pass, "history": history, "audit_integrity": integrity,
                 "engine_changed": engine_changed, "annotations": annotations,
                 "lead_dispositions": leads,
+                "claim_proposals": proposals, "claim_amendments": (run or {}).get("claim_amendments", []),
                 "annotation_pending": label_pending, "annotation_pending_count": len(label_pending)}
 
     def change_source(self, case_id, package, reason, *, actor="operator", context=None):
@@ -237,6 +274,8 @@ class Store:
         package = deepcopy(package)
         if not isinstance(package.get("review_scope", {}), dict):
             raise ValueError("review_scope必须为对象")
+        if package.get("claim_amendments", []) != old["package"].get("claim_amendments", []):
+            raise ValueError("人工陈述修订只能通过提议和独立审核写入，普通来源修订不能修改")
         for key in ("lead_dispositions", "upgraded_leads"):
             if package.get("review_scope", {}).get(key, []) != old["package"].get("review_scope", {}).get(key, []):
                 raise ValueError("线索处置和升级范围只能通过当前快照的人工升级或关闭动作修改")
@@ -312,6 +351,162 @@ class Store:
                 raise ValueError("运行时来源已改变，本次结果不作为当前结论，请重新运行")
         return self.get(case_id)
 
+    @staticmethod
+    def _claim_edit_snapshot(state, snapshot_id):
+        run = state["latest_run"]
+        if not run or state["stale"] or not state["audit_integrity"]["valid"]:
+            raise ValueError("请先对当前资料运行质检，过期或审计异常快照不可操作人工陈述")
+        if snapshot_id != run["snapshot_id"]:
+            raise ValueError("人工陈述操作必须绑定当前快照，请刷新后重试")
+        return run
+
+    @staticmethod
+    def _claim_edit_anchor(db, state):
+        current = db.execute("SELECT source_hash,current_run FROM cases WHERE case_id=?", (state["package"]["case_id"],)).fetchone()
+        latest = db.execute("SELECT event_hash FROM events WHERE case_id=? ORDER BY seq DESC LIMIT 1", (state["package"]["case_id"],)).fetchone()
+        if current[0] != state["source_hash"] or current[1] != state["latest_run"]["run_id"] or (latest[0] if latest else None) != (state["review_events"][-1]["event_hash"] if state["review_events"] else None):
+            raise ValueError("来源、运行或人工记录已改变，请刷新后重新操作")
+
+    def propose_claim(self, case_id, *, operation, reason, actor, snapshot_id,
+                      target_claim_id=None, proposed_claim=None, supersedes_amendment_id=None):
+        if not reason.strip() or not actor.strip():
+            raise ValueError("陈述提议必须记录人员和依据")
+        if operation not in {"replace", "add", "retire", "revoke"}:
+            raise ValueError("未知陈述提议类型")
+        state = self.get(case_id)
+        run = self._claim_edit_snapshot(state, snapshot_id)
+        package = state["package"]
+        amendments = package.get("claim_amendments", [])
+        superseded = {a.get("supersedes_amendment_id") for a in amendments}
+        prior = next((a for a in amendments if a["amendment_id"] == supersedes_amendment_id), None)
+        if supersedes_amendment_id and (not prior or supersedes_amendment_id in superseded or prior["operation"] == "revoke"):
+            raise ValueError("只能重新审核或撤销当前尚未被替代的修订记录")
+        if prior and ((prior["operation"] == "add" and operation not in {"add", "revoke"})
+                      or (prior["operation"] in {"replace", "retire"} and operation not in {"replace", "retire", "revoke"})):
+            raise ValueError("新增陈述仅可重新新增或撤销；原机器陈述修订仅可替换、废弃或撤销")
+        machine = {c["claim_id"]: c for c in run.get("machine_claims", run.get("claims", []))}
+        effective = {c["claim_id"]: c for c in run.get("claims", [])}
+        if target_claim_id in effective and effective[target_claim_id].get("origin") == "human_reviewed":
+            if not prior or effective[target_claim_id].get("amendment_id") != supersedes_amendment_id:
+                raise ValueError("修订人工陈述须明确替代其当前修订记录")
+            target_claim_id = None
+        if operation == "revoke":
+            if not prior or target_claim_id is not None or proposed_claim is not None:
+                raise ValueError("撤销修订只需指定supersedes_amendment_id，不得提交陈述或目标")
+            original = deepcopy(prior.get("original_claim"))
+        elif operation in {"replace", "retire"}:
+            if prior and target_claim_id is None:
+                target_claim_id = prior.get("target_claim_id")
+                if target_claim_id not in machine and prior.get("proposed_claim"):
+                    equivalent = [c for c in machine.values() if
+                        claim_edits.claim_signature(c) == claim_edits.claim_signature(prior["proposed_claim"])]
+                    target_claim_id = equivalent[0]["claim_id"] if len(equivalent) == 1 else None
+            if target_claim_id not in machine:
+                raise ValueError("请明确选择当前机器陈述；旧目标已变化，不能形成找不到目标的人工替代链")
+            if any(a["amendment_id"] not in superseded and a["operation"] != "revoke"
+                   and a.get("target_claim_id") == target_claim_id and a["amendment_id"] != supersedes_amendment_id for a in amendments):
+                raise ValueError("该陈述已有人工修订，请明确supersedes_amendment_id重新审核")
+            original = deepcopy(machine[target_claim_id])
+        else:
+            if target_claim_id is not None:
+                raise ValueError("漏抽新增不应指定被替换的机器陈述")
+            original = None
+        proposal_id, event_id = uuid4().hex, uuid4().hex
+        if operation in {"replace", "add"}:
+            proposed = claim_edits.normalize_proposed_claim(package, proposed_claim, "human-claim-" + proposal_id)
+            targets = package.get("review_scope", {}).get("target_labels", list(package["schema"]["labels"]))
+            if proposed["kind"] not in targets:
+                raise ValueError("提议陈述类型不属于当前目标范围；请先修改范围并重查")
+            assessment = claim_edits.assess_fidelity(package, proposed)
+            preview = verify_claim(package, proposed, package["schema"])
+        else:
+            if proposed_claim is not None:
+                raise ValueError("废弃或撤销不得提交新陈述")
+            proposed, preview = None, None
+            assessment = {"blocking_errors": [], "notes": ["原始命题及历史记录保留；废弃或撤销须由另一人员明确审核依据"]}
+        origin_evidence = [{"type": "document_span", **c["source"], "text": c["text"]}
+                           for c in (original, proposed) if c and c.get("source")]
+        proposal = {"proposal_id": proposal_id, "operation": operation, "target_claim_id": target_claim_id,
+            "original_claim": original, "proposed_claim": proposed, "supersedes_amendment_id": supersedes_amendment_id,
+            "context_hash": claim_edits.fidelity_context_hash(package), "proposer": actor.strip(), "reason": reason,
+            "base_source_hash": state["source_hash"], "base_run_id": run["run_id"], "base_snapshot_id": snapshot_id,
+            "base_execution_fingerprint": digest(run.get("execution", {})), "proposal_event_id": event_id,
+            "created_at": now(), "preview_verification": preview, "fidelity_assessment": assessment,
+            "origin_evidence": list({digest(e): e for e in origin_evidence}.values())}
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._claim_edit_anchor(db, state)
+            self._event(db, case_id, {**proposal, "event_id": event_id, "action": "claim_proposed",
+                "target_id": "claim-proposal:" + proposal_id, "snapshot_id": snapshot_id,
+                "run_id": run["run_id"], "source_hash": state["source_hash"], "actor": actor.strip()})
+        return self.get(case_id)
+
+    def review_claim_proposal(self, case_id, proposal_id, *, action, actor, reason, snapshot_id,
+                              expected_event_id, fidelity=None):
+        if not reason.strip() or not actor.strip():
+            raise ValueError("陈述审核必须记录人员和依据")
+        if action not in {"approve", "reject", "withdraw"}:
+            raise ValueError("未知陈述审核动作")
+        state = self.get(case_id)
+        run = self._claim_edit_snapshot(state, snapshot_id)
+        proposal = next((p for p in state["claim_proposals"] if p["proposal_id"] == proposal_id), None)
+        if not proposal:
+            raise KeyError("陈述提议不存在")
+        if expected_event_id != proposal["expected_event_id"]:
+            raise ValueError("提议已被其他人员处理，请刷新后重试")
+        if action not in proposal["allowed_actions"]:
+            raise ValueError("当前提议状态不允许此动作；过期提议仅可由作者撤回")
+        same_actor = actor.strip().casefold() == proposal["proposer"].strip().casefold()
+        if (action == "withdraw" and not same_actor) or (action != "withdraw" and same_actor):
+            raise ValueError("提议须由另一人员批准或驳回；只有提议人可以撤回")
+        if action != "approve" and fidelity is not None:
+            raise ValueError("只有批准动作可以提交忠实性裁决")
+        package, amendment = deepcopy(state["package"]), None
+        event_id = uuid4().hex
+        if action == "approve":
+            operation = proposal["operation"]
+            if (operation in {"replace", "add"} and fidelity != "faithful") or (operation == "retire" and fidelity not in {"not_a_claim", "duplicate"}) or (operation == "revoke" and fidelity is not None):
+                raise ValueError("请明确选择该操作对应的原文忠实性裁决")
+            if proposal["proposed_claim"]:
+                assessment = claim_edits.assess_fidelity(package, proposal["proposed_claim"])
+                if assessment["blocking_errors"]:
+                    raise ValueError("忠实性审核存在阻断错误：" + "；".join(assessment["blocking_errors"]))
+            if proposal["original_claim"] and operation != "revoke":
+                current = next((c for c in run.get("machine_claims", run.get("claims", []))
+                                if c["claim_id"] == proposal["target_claim_id"]), None)
+                if current != proposal["original_claim"]:
+                    raise ValueError("原机器陈述已改变，请基于当前快照重新提议")
+            if operation == "retire":
+                if fidelity == "not_a_claim":
+                    raise ValueError("当前不支持仅凭非事实判断删除原候选；请更正抽取或补正来源，原问题仍须处理")
+                signature = claim_edits.claim_signature(proposal["original_claim"])
+                retained = [c for c in run.get("claims", []) if c["claim_id"] != proposal["target_claim_id"]
+                            and claim_edits.claim_signature(c) == signature]
+                if not retained:
+                    raise ValueError("废弃重复候选必须有另一条当前同原文、对象、数值和期间的等价陈述保留")
+            amendment = {key: deepcopy(proposal[key]) for key in (
+                "operation", "target_claim_id", "original_claim", "proposed_claim", "supersedes_amendment_id", "context_hash",
+                "proposal_event_id", "proposer", "base_source_hash", "base_run_id", "base_snapshot_id", "base_execution_fingerprint",
+                "origin_evidence", "preview_verification", "fidelity_assessment")}
+            amendment.update(amendment_id=proposal_id, approval_event_id=event_id, reviewer=actor.strip(),
+                proposal_reason=proposal["reason"], reason=reason, fidelity=fidelity, created_at=now())
+            package.setdefault("claim_amendments", []).append(amendment)
+            package["data_version"] = str(int(package["data_version"]) + 1) if str(package["data_version"]).isdigit() else uuid4().hex[:12]
+            self.validate(package)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._claim_edit_anchor(db, state)
+            if amendment:
+                self._write_source_change(db, state, package, "批准人工陈述提议：" + reason, actor.strip(),
+                    {"review_action": "claim_approved", "proposal_id": proposal_id, "snapshot_id": snapshot_id})
+            self._event(db, case_id, {"event_id": event_id,
+                "action": {"approve": "claim_approved", "reject": "claim_rejected", "withdraw": "claim_withdrawn"}[action],
+                "proposal_id": proposal_id, "target_id": "claim-proposal:" + proposal_id,
+                "actor": actor.strip(), "reason": reason, "fidelity": fidelity, "previous_event_id": expected_event_id,
+                "snapshot_id": snapshot_id, "run_id": run["run_id"], "source_hash": state["source_hash"],
+                "new_source_hash": digest(package) if amendment else None, "amendment": amendment})
+        return self.get(case_id)
+
     def review(self, case_id, *, action, target_id, reason, actor="reviewer", resolution=None,
                new_value=None, claim_patch=None, evidence=None, snapshot_id=None, expected_event_id=None, previous_event_id=None):
         if not reason.strip() or not actor.strip():
@@ -369,7 +564,7 @@ class Store:
                 permitted = {"manual_focus": {"addressed", "not_addressed"}, "manual_material": {"corresponds", "mismatch", "not_applicable"}, "manual_extraction": {"addressed"}}
                 if resolution not in permitted[issue["type"]]:
                     raise ValueError("请选择该事项对应的明确判断结果")
-            if action == "reject" and issue["type"] in {"execution_failed", "insufficient_coverage", "material_insufficient", "claim_unresolved", "missing_alert", "manual_extraction", "manual_focus", "manual_material"}:
+            if action == "reject" and issue["type"] in {"execution_failed", "insufficient_coverage", "material_insufficient", "claim_unresolved", "missing_alert", "manual_extraction", "manual_focus", "manual_material", "manual_claim_review"}:
                 raise ValueError("未完成的检查不能通过否决候选来绕过")
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -453,7 +648,9 @@ class Store:
                           and e.get("snapshot_id") == run["snapshot_id"]]
         decisions = {e.get("target_id"): e for e in current_events}
         confirmed = [i for i in (run or {}).get("issues", []) if decisions.get(i["issue_id"], {}).get("action") in {"confirm", "reconfirm"}]
-        final_annotations = [{**a, "machine_candidate_value": a["candidate_value"], "machine_object": a["object"],
+        final_annotations = [{**a, "candidate_origin": a["origin"],
+                              "machine_candidate_value": a["candidate_value"] if a["origin"] == "machine_candidate" else None,
+                              "machine_object": a["object"] if a["origin"] == "machine_candidate" else None,
                               "value": a["review"]["final_value"], "final_value": a["review"]["final_value"],
                               "object": a["review"].get("object") or a["object"]}
                              for a in state["annotations"] if a["review"].get("valid")]
@@ -477,11 +674,13 @@ class Store:
                                 "annotations": final_annotations
                                     if state["review_status"] == "本次质检范围内通过" else [],
                                 "lead_dispositions": state["lead_dispositions"],
+                                "claim_proposals": state["claim_proposals"], "claim_amendments": state["claim_amendments"],
                                 "passed": state["review_status"] == "本次质检范围内通过"},
                 "candidates_and_open_items": {"run": run, "open_items": state["open_items"], "stale": state["stale"],
                                               "current_confirmed_issues": confirmed},
                 "annotations": state["annotations"], "annotation_pending": state["annotation_pending"],
                 "lead_dispositions": state["lead_dispositions"],
+                "claim_proposals": state["claim_proposals"], "claim_amendments": state["claim_amendments"],
                 "review_events": state["review_events"], "history": state["history"],
                 "historical_sources": historical_sources, "historical_runs": historical_runs,
                 "schema_migrations": {"previews":migration_previews,"receipts":migration_receipts},
