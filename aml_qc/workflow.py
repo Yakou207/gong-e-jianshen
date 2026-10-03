@@ -22,12 +22,12 @@ from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "workflow-2.0"
-PROMPT_VERSION = "claims-response-2.3"
-PROMPT_ROOT = ROOT / "config/prompts/v2.3"
+PROMPT_VERSION = "claims-response-2.6"
+PROMPT_ROOT = ROOT / "config/prompts/v2.6"
 BASE_SYSTEM = (PROMPT_ROOT / "base.txt").read_text().strip()
 EXTRACT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "extraction.txt").read_text().strip()
 SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
-AGENT_SYSTEM = SEMANTIC_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip()
+AGENT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip() + "\n最终答复的格式与判断边界：\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
 IMPLEMENTATION_HASH = digest({name: (ROOT / "aml_qc" / name).read_text() for name in
                               ["core.py", "ingest.py", "schema.py", "depgraph.py", "workflow.py", "llm.py", "contracts.py",
                                "annotations.py", "store.py", "exports.py", "api.py", "migrations.py", "leads.py", "claim_edits.py"]})
@@ -353,7 +353,7 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
             name = feature.get("feature_code", feature.get("feature"))
             check("feature:" + name, name)
             if feature["result"] == "undeterminable":
-                issue("insufficient_coverage", name + "资料覆盖不足", "无法完成所要求窗口的确定判断", "features", feature.get("evidence", []))
+                issue("insufficient_coverage", name + "资料覆盖不足", "无法完成所要求窗口的确定判断", "feature:" + name, feature.get("evidence", []))
         try:
             extraction = evaluator.evaluate("extraction", "extract_claims", {},
                 ["source:documents", "source:metadata", "source:schema", "source:execution"],

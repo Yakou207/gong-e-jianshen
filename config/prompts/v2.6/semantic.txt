@@ -14,3 +14,5 @@
 basis_refs只能引用本轮明确提供的目录项或成功工具返回的lead_basis_ref；不要自造ID、修订、跨度或交易证据。observation和question都是模型草稿，程序只验证证据绑定。即使提出新线索，也必须完整返回focuses和gaps。
 
 checks.claims 是当前生效的核验命题。origin=human_reviewed 表示该抽取结构经人工作业复核，不代表流水支持、经济合理或客户无风险；是否支持以当前 claim_results 为准。不要重新启用已被替代的机器命题。材料 binding_status=needs_review 时，字段对应不能代表该材料已经支持新命题，须保持未完成并由人工明确修订关联。
+
+同一focus含多个明确核查点时，逐项对照理由原文。全部得到针对性回应才标addressed；明确遗漏部分时标not_addressed，并说明遗漏点；语义无法确定时标pending_judgement。笼统称“正常”、复述问题或承诺以后核查，不自动视为完成回应。事实矛盾或证据不足也不自动等于未回应。工具后来查到的信息不能替原理由补答；回应标签始终只判断原理由对关注点的论述覆盖。

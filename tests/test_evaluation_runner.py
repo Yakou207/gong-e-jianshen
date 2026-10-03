@@ -52,6 +52,78 @@ def forbid_credentials_and_network(monkeypatch):
     monkeypatch.setattr(llm.httpx, "post", forbidden)
 
 
+@pytest.mark.parametrize("stamp", [
+    "2026-10-03T10:00:00+08:00",  # Weekend morning and afternoon are off-peak.
+    "2026-10-04T16:00:00+08:00",
+    "2026-09-29T08:58:59+08:00",  # Entire 60-second request stays before 09:00.
+    "2026-09-29T12:00:00+08:00",
+    "2026-09-29T13:58:59+08:00",
+    "2026-09-29T18:00:00+08:00",
+    "2026-09-28T23:59:30+08:00",  # Crossing midnight does not change this tariff.
+])
+def test_live_pricing_accepts_unambiguous_off_peak_intervals(monkeypatch, stamp):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat(stamp)
+    monkeypatch.setattr(runner, "now", lambda: current.astimezone(timezone.utc))
+    pricing = {"period": "off_peak", "valid_until": (current + timedelta(days=1)).isoformat()}
+    runner.verify_pricing_window(pricing, live=True)
+
+
+@pytest.mark.parametrize("stamp", [
+    "2026-10-01T10:00:00+08:00",  # A holiday must not be inferred to be peak from its weekday.
+    "2026-09-29T15:00:00+08:00",  # Ordinary weekdays also require verified calendar evidence.
+])
+@pytest.mark.parametrize("period", ["peak", "off_peak"])
+def test_live_weekday_peak_hours_are_unknown_without_verified_holiday_calendar(monkeypatch, stamp, period):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat(stamp)
+    monkeypatch.setattr(runner, "now", lambda: current.astimezone(timezone.utc))
+    pricing = {"period": period, "valid_until": (current + timedelta(days=1)).isoformat()}
+    with pytest.raises(ValueError, match="weekday_peak_requires_verified_holiday_calendar"):
+        runner.verify_pricing_window(pricing, live=True)
+
+
+@pytest.mark.parametrize("stamp", [
+    "2026-09-29T08:59:00+08:00",
+    "2026-09-29T13:59:30+08:00",
+    "2026-10-01T08:59:30+08:00",
+])
+def test_live_call_cannot_cross_into_unknown_weekday_tariff(monkeypatch, stamp):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat(stamp)
+    monkeypatch.setattr(runner, "now", lambda: current.astimezone(timezone.utc))
+    pricing = {"period": "off_peak", "valid_until": (current + timedelta(days=1)).isoformat()}
+    with pytest.raises(ValueError, match="pricing_transition_within_request_timeout"):
+        runner.verify_pricing_window(pricing, live=True)
+
+
+def test_weekend_cannot_use_frozen_peak_price(monkeypatch):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat("2026-10-03T10:00:00+08:00")
+    monkeypatch.setattr(runner, "now", lambda: current)
+    pricing = {"period": "peak", "valid_until": (current + timedelta(days=1)).isoformat()}
+    with pytest.raises(ValueError, match="frozen_pricing_period_is_not_current"):
+        runner.verify_pricing_window(pricing, live=True)
+
+
+def test_offline_verification_does_not_require_holiday_calendar(monkeypatch):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat("2026-10-01T10:00:00+08:00")
+    monkeypatch.setattr(runner, "now", lambda: current)
+    pricing = {"period": "peak", "valid_until": (current + timedelta(days=1)).isoformat()}
+    runner.verify_pricing_window(pricing, live=False)
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_request_must_finish_before_frozen_pricing_expiry(monkeypatch, live):
+    from scripts import run_evaluation as runner
+    current = datetime.fromisoformat("2026-10-03T10:00:00+08:00")
+    monkeypatch.setattr(runner, "now", lambda: current)
+    pricing = {"period": "off_peak", "valid_until": (current + timedelta(seconds=60)).isoformat()}
+    with pytest.raises(ValueError, match="pricing_expired_or_too_near_expiry"):
+        runner.verify_pricing_window(pricing, live=live)
+
+
 @pytest.fixture
 def experiment(tmp_path):
     stamp = datetime.now(timezone.utc) - timedelta(minutes=1)
@@ -97,7 +169,7 @@ def experiment(tmp_path):
             "dependency_lock": file_ref(tmp_path, ROOT / "uv.lock"),
             "scorer": file_ref(tmp_path, ROOT / "scripts/score_evaluation.py"),
             "tools": [file_ref(tmp_path, ROOT / name) for name in IMPLEMENTATIONS],
-            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v2.3").glob("*.txt"))]
+            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v2.6").glob("*.txt"))]
                        + [file_ref(tmp_path, ROOT / "config/prompts/b0-v1/direct.txt")],
             "family_grouping": json_ref(tmp_path, "grouping.json", {"reviewed_by": [people[0]], "cases": [
                 {"case_id": case["case_id"], "economic_group": case["case_family"], "split": "test",
@@ -168,6 +240,75 @@ def test_preflight_retains_full_plan_without_factory_credentials_or_output_write
     assert {p["planned_run_id"] for p in report["planned_runs"]} == {p["planned_run_id"] for p in experiment["plan"]}
     assert {p["method"] for p in report["planned_runs"]} == {"B0", "Fixed", "Agent"}
     assert factories == calls == [] and not experiment["output"].exists()
+
+
+@pytest.mark.parametrize("binding", ["default_differs", "embedded_differs", "embedded_matches"])
+def test_effective_case_schema_must_match_frozen_content_before_dispatch(experiment, binding):
+    from aml_qc.schema import validate_schema
+    base, manifest = experiment["path"].parent, experiment["manifest"]
+    alternate = json.loads((ROOT / "config/schema/S1.0.json").read_text())
+    assert alternate["features"]["F1"]["minimum_days"] == 3
+    alternate["features"]["F1"]["minimum_days"] = 4
+    assert alternate["schema_version"] == experiment["case"]["schema_version"]
+    assert validate_schema(alternate) == []
+    if binding != "embedded_differs":
+        manifest["artifacts"]["schema"] = json_ref(base, "alternate-schema.json", alternate)
+    if binding != "default_differs":
+        experiment["case"]["schema"] = deepcopy(alternate)
+        manifest["cases"][0].update(json_ref(base, "case.json", experiment["case"]))
+        reference = json.loads((base / manifest["references"][0]["path"]).read_text())
+        reference["case_sha256"] = manifest["cases"][0]["sha256"]
+        manifest["references"][0].update(json_ref(base, "reference.json", reference))
+    write_json(experiment["path"], manifest)
+    # File hashes and the schema version alone cannot bind the rules executed.
+    frozen = validate_manifest(experiment["path"])
+    assert frozen["frozen_valid"], frozen["issues"]
+    factories, calls = [], []
+    preflight = run(experiment, execute=False, factory=model_factory(factories, calls))
+    assert factories == calls == [] and not experiment["output"].exists()
+    if binding != "embedded_matches":
+        assert preflight["status"] == "blocked", preflight
+        assert "case_schema_does_not_match_frozen_schema" in preflight["errors"]
+        dispatched = run(experiment, factory=model_factory(factories, calls))
+        assert dispatched["status"] == "blocked", dispatched
+        assert_blocked_without_calls(experiment, dispatched, factories, calls)
+        return
+    assert preflight["status"] == "planned" and not preflight["errors"], preflight
+    completed = run(experiment, factory=model_factory(factories, calls))
+    assert completed["status"] == "completed" and not completed["errors"], completed
+    assert factories == calls == ["B0", "Fixed", "Agent"]
+    methods = {plan["planned_run_id"]: plan["method"] for plan in frozen["planned_runs"]}
+    for row in read_index(experiment)["runs"]:
+        raw = json.loads((experiment["output"] / row["raw_result"]["path"]).read_text())
+        effective = (raw["input_projection"]["schema"] if methods[row["planned_run_id"]] == "B0"
+                     else raw["snapshot"]["sources"]["source:schema"]["value"])
+        assert effective == alternate
+
+
+def test_b0_projection_must_preserve_frozen_custom_template_before_dispatch(experiment):
+    from aml_qc.baseline import raw_case_input
+    from aml_qc.schema import validate_schema
+    base, manifest = experiment["path"].parent, experiment["manifest"]
+    schema = json.loads((ROOT / "config/schema/S1.0.json").read_text())
+    schema["material_templates"]["custom_purchase"] = deepcopy(schema["material_templates"]["single_purchase_payment"])
+    assert validate_schema(schema) == []
+    experiment["case"]["schema"] = deepcopy(schema)
+    manifest["artifacts"]["schema"] = json_ref(base, "custom-schema.json", schema)
+    manifest["cases"][0].update(json_ref(base, "case.json", experiment["case"]))
+    reference = json.loads((base / manifest["references"][0]["path"]).read_text())
+    reference["case_sha256"] = manifest["cases"][0]["sha256"]
+    manifest["references"][0].update(json_ref(base, "reference.json", reference))
+    write_json(experiment["path"], manifest)
+    frozen = validate_manifest(experiment["path"])
+    assert frozen["frozen_valid"], frozen["issues"]
+    assert experiment["case"]["schema"] == schema
+    assert "custom_purchase" not in raw_case_input(experiment["case"])["schema"]["material_templates"]
+    factories, calls = [], []
+    for execute in (False, True):
+        report = run(experiment, execute=execute, factory=model_factory(factories, calls))
+        assert report["status"] == "blocked", report
+        assert "b0_projected_schema_does_not_match_frozen_schema" in report["errors"]
+        assert_blocked_without_calls(experiment, report, factories, calls)
 
 
 @pytest.mark.parametrize("mutation", ["draft", "retry", "generation", "calls", "artifact", "prompt", "expired"])

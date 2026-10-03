@@ -20,6 +20,19 @@ def case(number=2):
     return load_case(DATA / f'seed-{number:02d}.json')
 
 
+def test_partial_coverage_keeps_two_feature_obligations_individually_addressable():
+    value = case(1)
+    value['coverage'][0]['status'] = 'partial'
+    result = run_review(value)
+    problems = [item for item in result['issues'] if item['type'] == 'insufficient_coverage']
+    assert len(problems) == 2
+    assert len({item['issue_id'] for item in problems}) == 2
+    checks = {item['check_id'] for item in result['required_checks'] if item['label'] in {'F1', 'F2'}}
+    assert {item['target_id'] for item in problems} == checks
+    open_items = {item['item_id']: item for item in result['open_items']}
+    assert all(open_items[item['issue_id']]['target_id'] == item['target_id'] for item in problems)
+
+
 def test_explicit_response_target_without_focus_is_required_even_annotation_only():
     value = case()
     value['task_mode'] = 'annotation_only'

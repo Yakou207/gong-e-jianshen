@@ -261,6 +261,10 @@ def _provider_record(record):
         return {}
     value = {k: deepcopy(record[k]) for k in ("request_hash", "status", "duration_ms", "model_returned",
                                              "system_fingerprint", "finish_reason") if k in record}
+    if isinstance(record.get("request"), dict):
+        value["request"] = {k: deepcopy(record["request"][k]) for k in
+                            ("model", "messages", "max_tokens", "temperature", "thinking", "tools",
+                             "tool_choice", "response_format") if k in record["request"]}
     usage = record.get("usage")
     value["usage"] = {k: deepcopy(usage[k]) for k in USAGE_FIELDS if k in usage} if isinstance(usage, dict) else None
     if isinstance(record.get("response"), dict):

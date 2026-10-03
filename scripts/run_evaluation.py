@@ -5,6 +5,8 @@ manifest must bind execution_directory (relative to itself), every implementatio
 file and prompt, a future pricing.valid_until, and zero retries. Live runs use
 deepseek-flash at its official endpoint and a frozen peak/off_peak pricing period.
 The operator must verify the frozen tariff against the current official price.
+Until a verified holiday calendar is available, live calls are limited to
+weekends and hours outside the official weekday peak intervals.
 
 A kernel file lock serializes this LOCAL execution directory. A permanent start
 marker prevents retrying a started plan, even after a process dies. Recovery may
@@ -26,7 +28,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from aml_qc.baseline import run_baseline
+from aml_qc.baseline import raw_case_input, run_baseline
 from aml_qc.depgraph import digest
 from aml_qc.evaluation_budget import CONTEXT_BOUND, OUTPUT_BOUND, BudgetLedger, BudgetedModel
 from aml_qc.llm import DeepSeek
@@ -39,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPLEMENTATIONS = [f'aml_qc/{name}.py' for name in ('core', 'ingest', 'schema', 'contracts', 'llm', 'depgraph',
     'workflow', 'claim_edits', 'leads', 'baseline', 'scoring_inputs', 'evaluation_budget')]
 IMPLEMENTATIONS += ['scripts/run_evaluation.py', 'scripts/score_evaluation.py', 'scripts/validate_evaluation.py']
-PROMPTS = [f'config/prompts/v2.3/{name}.txt' for name in ('agent', 'base', 'extraction', 'semantic')]
+PROMPTS = [f'config/prompts/v2.6/{name}.txt' for name in ('agent', 'base', 'extraction', 'semantic')]
 PROMPTS += ['config/prompts/b0-v1/direct.txt']
 GENERATION = {'temperature': 0, 'thinking': 'disabled', 'max_output_tokens': 4096}
 
@@ -127,14 +129,17 @@ def verify_pricing_window(pricing, *, live):
     if not _timestamp(deadline) or now() + timedelta(seconds=60) >= datetime.fromisoformat(deadline):
         raise ValueError('pricing_expired_or_too_near_expiry')
     if live:
-        current = now()
-        peak = current.weekday() < 5 and (1 <= current.hour < 4 or 6 <= current.hour < 10)
-        if pricing.get('period') != ('peak' if peak else 'off_peak'):
+        current = now().astimezone(timezone(timedelta(hours=8)))
+        # The official weekday peak schedule excludes Chinese statutory
+        # holidays. Without a verified calendar, that interval is unknown;
+        # do not silently treat every weekday as a non-holiday.
+        if current.weekday() < 5 and (9 <= current.hour < 12 or 14 <= current.hour < 18):
+            raise ValueError('weekday_peak_requires_verified_holiday_calendar')
+        if pricing.get('period') != 'off_peak':
             raise ValueError('frozen_pricing_period_is_not_current')
-        # Do not start a call near the next peak/off-peak transition.
+        # Do not let a request enter an interval whose tariff is unknown.
         later = current + timedelta(seconds=60)
-        later_peak = later.weekday() < 5 and (1 <= later.hour < 4 or 6 <= later.hour < 10)
-        if later_peak != peak:
+        if later.weekday() < 5 and (9 <= later.hour < 12 or 14 <= later.hour < 18):
             raise ValueError('pricing_transition_within_request_timeout')
 
 
@@ -159,6 +164,14 @@ def preflight(manifest_path, output_dir, *, live, check_price_window=True):
         raise ValueError('current_prompt_not_frozen')
     if manifest['artifacts']['dependency_lock']['sha256'] != sha_file(ROOT / 'uv.lock'):
         raise ValueError('current_dependency_lock_not_frozen')
+    frozen_schema = read_ref(Path(manifest_path).parent, manifest['artifacts']['schema'])
+    for case_ref in manifest['cases']:
+        case = read_ref(Path(manifest_path).parent, case_ref)
+        actual_schema = case.get('schema') or read_object(ROOT / 'config/schema/S1.0.json')[0]
+        if actual_schema != frozen_schema or case.get('schema_version') != frozen_schema.get('schema_version'):
+            raise ValueError('case_schema_does_not_match_frozen_schema')
+        if raw_case_input(case)['schema'] != frozen_schema:
+            raise ValueError('b0_projected_schema_does_not_match_frozen_schema')
     for name, method in manifest['methods'].items():
         runner = 'aml_qc/baseline.py' if name == 'B0' else 'aml_qc/workflow.py'
         if method['runner']['sha256'] != sha_file(ROOT / runner) or method['generation'] != GENERATION:

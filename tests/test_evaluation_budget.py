@@ -297,6 +297,48 @@ def test_private_provider_metadata_and_reasoning_are_not_logged():
     assert model.model == model.base.model
 
 
+@pytest.mark.parametrize("use_tools", [False, True])
+def test_actual_provider_payload_is_preserved_with_its_own_hash(use_tools):
+    class PayloadModel(FakeModel):
+        def complete(self, messages, tools=None):
+            result = super().complete(messages, tools)
+            payload = {"model": self.model, "messages": deepcopy(messages), "max_tokens": 4096,
+                       "temperature": 0, "thinking": {"type": "disabled"}}
+            if tools:
+                payload.update(tools=deepcopy(tools), tool_choice="auto")
+            else:
+                payload["response_format"] = {"type": "json_object"}
+            self.calls[-1].update(request=payload, request_hash=digest(payload))
+            return result
+    model, _, events = wrapper(PayloadModel())
+    tools = [{"type": "function", "function": {"name": "fixture"}}] if use_tools else None
+    model.complete(MESSAGES, tools=tools)
+    provider = model.calls[0]["provider_records"][0]
+    assert provider["request"] == model.base.calls[0]["request"]
+    assert digest(provider["request"]) == provider["request_hash"]
+    assert provider["request_hash"] != model.calls[0]["request_hash"]
+    assert events[-1]["record"]["provider_records"][0]["request"] == provider["request"]
+    model.base.calls[0]["request"]["messages"][0]["content"] = "changed later"
+    assert provider["request"]["messages"] == MESSAGES
+
+
+def test_provider_request_projection_drops_transport_and_secret_metadata():
+    class ContaminatedRecord(FakeModel):
+        def complete(self, messages, tools=None):
+            result = super().complete(messages, tools)
+            self.calls[-1]["request"] = {"model": self.model, "messages": deepcopy(messages),
+                "max_tokens": 4096, "temperature": 0, "thinking": {"type": "disabled"},
+                "response_format": {"type": "json_object"}, "headers": {"Authorization": "SECRET-HEADER"},
+                "auth": "SECRET-AUTH", "key": "SECRET-KEY", "api_key": "SECRET-API-KEY",
+                "DEEPSEEK_API_KEY": "SECRET-ENV-KEY", "config": self.config}
+            return result
+    model, _, events = wrapper(ContaminatedRecord())
+    model.complete(MESSAGES)
+    payload = model.calls[0]["provider_records"][0]["request"]
+    assert set(payload) == {"model", "messages", "max_tokens", "temperature", "thinking", "response_format"}
+    assert "SECRET" not in repr(events) + repr(model.calls)
+
+
 def test_caller_mutation_during_sink_does_not_change_dispatched_request():
     messages, tools = deepcopy(MESSAGES), [{"type": "function", "function": {"name": "fixture"}}]
     captured = []
