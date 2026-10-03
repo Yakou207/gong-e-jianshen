@@ -261,6 +261,58 @@ def test_request_capture_is_immutable_and_hash_matches(monkeypatch):
     assert model.calls[0]['request_hash'] == digest(model.calls[0]['request'])
 
 
+@pytest.mark.parametrize('use_tools', [False, True])
+def test_json_format_is_requested_even_when_tools_are_available(monkeypatch, use_tools):
+    response = tool_message() if use_tools else json_message({'ok': True})
+    body = {'choices': [{'finish_reason': 'tool_calls' if use_tools else 'stop', 'message': response}]}
+    sent = []
+    def fake_post(*args, **kwargs):
+        sent.append(deepcopy(kwargs['json']))
+        return httpx.Response(200, json=body)
+    monkeypatch.setattr(llm.httpx, 'post', fake_post)
+    model = DeepSeek()
+    tools = [{'type': 'function', 'function': {'name': 'check_coverage', 'parameters': {'type': 'object'}}}] if use_tools else None
+    assert model.complete([{'role': 'user', 'content': 'Return JSON or call a tool.'}], tools) == response
+    assert sent[0]['response_format'] == {'type': 'json_object'}
+    if use_tools:
+        assert sent[0]['tools'] == tools and sent[0]['tool_choice'] == 'auto'
+    assert model.calls[0]['request'] == sent[0]
+    assert model.calls[0]['request_hash'] == digest(sent[0])
+
+
+@pytest.mark.parametrize('final_content', ['valid', 'plain text', ''])
+def test_agent_json_final_keeps_tool_results_and_never_repairs_invalid_output(monkeypatch, final_content):
+    value = case()
+    sent = []
+    def fake_post(*args, **kwargs):
+        payload = deepcopy(kwargs['json']); sent.append(payload)
+        if len(sent) == 1:
+            response = json_message({'claims': [], 'unresolved': []})
+        elif len(sent) == 2:
+            response = json_message(semantic_response(value))
+        elif len(sent) == 3:
+            response = tool_message('query_transactions', {'direction': 'out'})
+        else:
+            assert len(sent) == 4, 'No retry or repair request is allowed'
+            response = (json_message(semantic_response(value)) if final_content == 'valid'
+                        and payload.get('response_format') == {'type': 'json_object'}
+                        else {'role': 'assistant', 'content': final_content})
+        body = {'usage': {'prompt_tokens': 20, 'completion_tokens': 10},
+                'choices': [{'finish_reason': 'tool_calls' if response.get('tool_calls') else 'stop', 'message': response}]}
+        return httpx.Response(200, json=body)
+    monkeypatch.setattr(llm.httpx, 'post', fake_post)
+    result = run_review(value, provider='deepseek', mode='agent', model=DeepSeek())
+    assert len(sent) == result['stats']['model_calls'] == 4
+    assert any(m['role'] == 'tool' and json.loads(m['content'])['transaction_ids'] for m in sent[-1]['messages'])
+    assert result['stats']['adaptive_tools_completed'] == 1
+    semantic = next(c for c in result['required_checks'] if c['check_id'] == 'semantic')
+    if final_content == 'valid':
+        assert semantic['status'] == 'completed' and result['semantic_results']
+    else:
+        assert semantic['status'] == 'failed' and result['run_status'] == 'partial'
+        assert not result['semantic_results'] and not result['lead_candidates']
+
+
 def test_exact_request_frozen_full_incremental_and_independent_expected_value():
     old = case()
     outgoing = deepcopy(next(t for t in old['transactions'] if t['direction'] == 'out'))

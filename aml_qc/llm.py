@@ -46,12 +46,11 @@ class DeepSeek:
         if len(self.calls) >= self.max_calls:
             raise ModelError("模型调用预算已耗尽，保留未完成项")
         payload = {"model": self.model, "messages": messages, "max_tokens": 4096,
-                   "temperature": 0, "thinking": {"type": "disabled"}}
+                   "temperature": 0, "thinking": {"type": "disabled"},
+                   "response_format": {"type": "json_object"}}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
-        else:
-            payload["response_format"] = {"type": "json_object"}
         record = {"request_hash": digest(payload), "request": deepcopy(payload), "status": "started"}
         self.calls.append(record)
         start = perf_counter()
