@@ -22,8 +22,8 @@ from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "workflow-2.0"
-PROMPT_VERSION = "claims-response-2.6"
-PROMPT_ROOT = ROOT / "config/prompts/v2.6"
+PROMPT_VERSION = "claims-response-2.8"
+PROMPT_ROOT = ROOT / "config/prompts/v2.8"
 FIXED_POLICY = {"version": "fixed-visible-scope-1", "steps": ["check_coverage", "query_transactions"],
                 "scope": "entire visible case interval, all directions and counterparties",
                 "applies_when": "model semantic review is required"}
