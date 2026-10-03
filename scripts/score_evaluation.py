@@ -82,6 +82,7 @@ def fraction(n, d):
 def call_cost(calls, pricing, *, attempted, declared_calls=None, usage_complete=None):
     """Count each recorded call, including identical requests; unknown is not zero."""
     known, unknown, tokens = Decimal(0), 0, 0
+    dispatched, not_sent_missing_usage = 0, False
     if not isinstance(calls, list):
         calls = []
     if attempted and not calls:
@@ -89,6 +90,15 @@ def call_cost(calls, pricing, *, attempted, declared_calls=None, usage_complete=
     for call in calls:
         usage = call.get('usage') if isinstance(call, dict) else None
         keys = ('prompt_cache_hit_tokens', 'prompt_cache_miss_tokens', 'completion_tokens', 'prompt_tokens')
+        if isinstance(call, dict) and call.get('dispatch_status') == 'not_sent':
+            zero_usage = (isinstance(usage, dict) and all(type(usage.get(k)) is int and usage[k] == 0 for k in keys)
+                          and ('total_tokens' not in usage or type(usage['total_tokens']) is int and usage['total_tokens'] == 0))
+            if call.get('response') is not None or (usage is not None and not zero_usage):
+                unknown += 1
+            elif usage is None:
+                not_sent_missing_usage = True
+            continue
+        dispatched += 1
         if (not isinstance(usage, dict) or any(type(usage.get(k)) is not int or usage[k] < 0 for k in keys)
                 or usage['prompt_cache_hit_tokens'] + usage['prompt_cache_miss_tokens'] != usage['prompt_tokens']
                 or ('total_tokens' in usage and (type(usage['total_tokens']) is not int
@@ -101,10 +111,10 @@ def call_cost(calls, pricing, *, attempted, declared_calls=None, usage_complete=
     if declared_calls is not None and (type(declared_calls) is not int or declared_calls < 0 or declared_calls != len(calls)):
         missing = declared_calls - len(calls) if type(declared_calls) is int else 1
         unknown += max(1, missing)
-    if usage_complete is False and not unknown:
+    if usage_complete is False and not unknown and not not_sent_missing_usage:
         unknown = 1
     return {'known_cost': str(known), 'total_cost': None if unknown else str(known),
-            'unknown_usage_calls': unknown, 'recorded_calls': len(calls),
+            'unknown_usage_calls': unknown, 'recorded_calls': len(calls), 'dispatched_calls': dispatched,
             'known_tokens': tokens, 'cost_status': 'incomplete' if unknown else 'complete'}
 
 

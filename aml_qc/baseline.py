@@ -313,6 +313,8 @@ def run_baseline(case, *, provider="frozen", model=None):
                 raise ValueError("frozen B0 requires an injected model")
             model = DeepSeek(max_calls=1)
         result["execution"]["model"] = getattr(model, "model", None)
+        if getattr(model, "execution_budget_spec", None) is not None:
+            result["execution"]["evaluation_budget"] = deepcopy(model.execution_budget_spec)
         prior_calls = len(getattr(model, "calls", []))
         request = {"model": getattr(model, "model", None), "messages": deepcopy(messages), "tools": None}
         record = {"request": request, "request_hash": digest(request), "status": "started", "usage": None, "provider_records": []}
@@ -330,8 +332,11 @@ def run_baseline(case, *, provider="frozen", model=None):
         finally:
             record["duration_ms"] = round((perf_counter() - call_started) * 1000, 3)
             records = getattr(model, "calls", [])[prior_calls:]
-            record["provider_records"] = [{k: deepcopy(r[k]) for k in ("request_hash", "status", "usage", "duration_ms", "model_returned", "system_fingerprint", "finish_reason") if k in r} for r in records]
+            record["provider_records"] = [{k: deepcopy(r[k]) for k in ("request_hash", "status", "usage", "duration_ms", "model_returned", "system_fingerprint", "finish_reason", "dispatch_status", "budget_event_id") if k in r} for r in records]
             if len(records) == 1:
+                for key in ("dispatch_status", "budget_event_id"):
+                    if key in records[0]:
+                        record[key] = deepcopy(records[0][key])
                 usage = records[0].get("usage") or {}
                 if result["raw_response"] is None and isinstance(records[0].get("response"), dict):
                     result["raw_response"] = {k: deepcopy(v) for k, v in records[0]["response"].items() if k in {"role", "content", "tool_calls"}}

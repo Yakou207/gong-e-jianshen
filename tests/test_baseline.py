@@ -286,3 +286,33 @@ def test_deepseek_budget_usage_and_safe_truncated_raw_response(monkeypatch, outc
             assert result["call_records"][0]["response"] == result["raw_response"]
         else:
             assert result["run_status"] == "completed"
+
+
+@pytest.mark.parametrize('dispatch', ['sent', 'not_sent', None])
+def test_baseline_preserves_current_budget_dispatch_metadata(dispatch):
+    package = case()
+    class BudgetFixture(ScriptedModel):
+        def complete(self, messages, tools=None):
+            if dispatch == 'not_sent':
+                self.calls.append({'status': 'failed', 'usage': None, 'dispatch_status': dispatch,
+                                   'budget_event_id': 'budget-fixture-current'})
+                raise llm.ModelError('Offline budget refusal; no underlying request')
+            response = super().complete(messages, tools)
+            if dispatch is not None:
+                self.calls[-1].update(dispatch_status=dispatch, budget_event_id='budget-fixture-current')
+            return response
+    model = BudgetFixture([json_message(answer(package))])
+    model.calls.append({'dispatch_status': 'sent', 'budget_event_id': 'old-event'})
+    result = baseline.run_baseline(package, model=model)
+    call = result['call_records'][0]
+    assert len(call['provider_records']) == 1 and result['stats']['model_calls'] == 1
+    if dispatch is None:
+        assert 'dispatch_status' not in call and 'budget_event_id' not in call
+    else:
+        assert call['dispatch_status'] == call['provider_records'][0]['dispatch_status'] == dispatch
+        assert call['budget_event_id'] == call['provider_records'][0]['budget_event_id'] == 'budget-fixture-current'
+    if dispatch == 'not_sent':
+        assert result['run_status'] == 'failed' and result['raw_response'] is None
+        assert call['usage'] is None and call['response'] is None
+    else:
+        assert result['run_status'] == 'completed'

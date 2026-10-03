@@ -433,3 +433,44 @@ def test_recorded_model_or_request_contradiction_invalidates_run(experiment, cha
         call['request'] = {'model': 'different-model' if change == 'request_model' else 'fixture-model', 'temperature': 1}
     result = agent(run(experiment))
     assert result['run_status_counts'] == {'invalid': 1} and result['accuracy']['numerator'] == 0
+
+
+@pytest.mark.parametrize('usage', [None, dict(prompt_tokens=0, prompt_cache_hit_tokens=0,
+    prompt_cache_miss_tokens=0, completion_tokens=0, total_tokens=0)])
+def test_explicit_not_sent_invocation_costs_zero_without_disappearing(experiment, usage):
+    record = {'dispatch_status': 'not_sent', 'budget_event_id': 'budget-denied', 'usage': usage,
+              'status': 'failed', 'response': None}
+    result = call_cost([record], experiment['pricing'], attempted=True, declared_calls=1,
+                      usage_complete=usage is not None)
+    assert result['recorded_calls'] == 1 and result['dispatched_calls'] == 0
+    assert result['total_cost'] == '0' and result['unknown_usage_calls'] == 0
+
+
+def test_not_sent_missing_usage_does_not_hide_sent_usage_or_missing_invocation(experiment):
+    sent = {'dispatch_status': 'sent', 'usage': {'prompt_tokens': 300, 'prompt_cache_hit_tokens': 100,
+        'prompt_cache_miss_tokens': 200, 'completion_tokens': 30, 'total_tokens': 330}}
+    denied = {'dispatch_status': 'not_sent', 'usage': None, 'status': 'failed'}
+    complete = call_cost([sent, denied], experiment['pricing'], attempted=True, declared_calls=2, usage_complete=False)
+    assert complete['total_cost'] == '0.27' and complete['unknown_usage_calls'] == 0
+    assert complete['recorded_calls'] == 2 and complete['dispatched_calls'] == 1
+    for calls, declared in [([{'dispatch_status': 'sent', 'usage': None}, denied], 2), ([sent, denied], 3)]:
+        incomplete = call_cost(calls, experiment['pricing'], attempted=True, declared_calls=declared, usage_complete=False)
+        assert incomplete['total_cost'] is None and incomplete['unknown_usage_calls'] == 1
+
+
+@pytest.mark.parametrize('contradiction', ['usage', 'response'])
+def test_not_sent_contradiction_cannot_silently_make_response_free(experiment, contradiction):
+    record = {'dispatch_status': 'not_sent', 'usage': None, 'status': 'failed'}
+    if contradiction == 'usage':
+        record['usage'] = dict(prompt_tokens=1, prompt_cache_hit_tokens=0,
+                               prompt_cache_miss_tokens=1, completion_tokens=0)
+    else:
+        record.update(status='completed', response={'role': 'assistant', 'content': '{}'})
+    result = call_cost([record], experiment['pricing'], attempted=True, declared_calls=1)
+    assert result['total_cost'] is None and result['unknown_usage_calls'] == 1
+
+
+def test_legacy_usage_incomplete_stays_unknown_without_explicit_not_sent(experiment):
+    usage = dict(prompt_tokens=0, prompt_cache_hit_tokens=0, prompt_cache_miss_tokens=0, completion_tokens=0)
+    result = call_cost([{'usage': usage}], experiment['pricing'], attempted=True, declared_calls=1, usage_complete=False)
+    assert result['total_cost'] is None and result['unknown_usage_calls'] == 1

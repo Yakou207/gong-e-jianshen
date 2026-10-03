@@ -31,6 +31,7 @@
 !/scripts/export_case.py
 !/scripts/validate_evaluation.py
 !/scripts/score_evaluation.py
+!/scripts/run_evaluation.py
 
 !/tests/
 !/tests/test_*.py

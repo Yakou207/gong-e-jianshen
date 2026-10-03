@@ -319,6 +319,8 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                  "max_model_calls": 6, "max_output_tokens": 4096, "temperature": 0, "thinking": "disabled",
                  "tools": tool_definitions(), "extraction_prompt": EXTRACT_SYSTEM, "semantic_prompt": SEMANTIC_SYSTEM,
                  "agent_prompt": AGENT_SYSTEM, "response_contracts": contract_schemas()}
+    if getattr(model, "execution_budget_spec", None) is not None:
+        execution["evaluation_budget"] = deepcopy(model.execution_budget_spec)
     evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
     started = perf_counter()
     result = {"case_id": case["case_id"], "mode": mode, "provider": provider, "strategy": strategy,
