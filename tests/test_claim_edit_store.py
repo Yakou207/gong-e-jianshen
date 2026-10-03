@@ -102,7 +102,8 @@ def test_proposal_cannot_clear_machine_issue_until_review_and_recalculation(stor
     exported = store.export("seed-01")
     assert exported["deliverable"]["claim_proposals"][0]["status"] == "approved"
     delivered = exported["deliverable"]["annotations"][0]
-    assert delivered["origin"] == delivered["candidate_origin"] == "human_reviewed"
+    assert delivered["candidate_origin"] == "human_reviewed"
+    assert delivered["origin"] == delivered["review"]["origin"] == "human_confirmation"
     assert delivered["candidate_value"] == "supported"
     assert delivered["machine_candidate_value"] is None and delivered["machine_object"] is None
     assert exported["historical_runs"][0]["claims"][0]["value"] == 99

@@ -191,11 +191,50 @@ def resolved_targets(annotations):
     return resolved
 
 
+def _current_structured_reference(package, ref):
+    kind = ref['type']
+    materials = sorted(package.get('materials', []), key=lambda m: m['material_id'])
+    transaction_hash = digest(sorted(package.get('transactions', []), key=lambda r: r['transaction_id']))
+    if kind == 'query_scope':
+        if ref.get('source') == 'materials':
+            return ref == {'type': kind, 'source': 'materials',
+                           'material_ids': [m['material_id'] for m in package.get('materials', [])],
+                           'material_links': package.get('material_links', [])}
+        scope = ref['scope']
+        query = {k: scope[k] for k in ('start', 'end', 'account_id', 'direction', 'counterparty_ref')}
+        query['fields'] = ref['coverage']['fields']
+        if sorted(query['fields']) != scope['fields']:
+            return False
+        current = core.query_transactions(package, query)
+        return ref == {'type': kind, **{k: current[k] for k in ('scope', 'coverage', 'transaction_ids')}}
+    if kind == 'material_set':
+        return (ref.get('content_hash') == digest(materials)
+                and sorted(ref['members'], key=lambda m: m['material_id'])
+                == [{'material_id': m['material_id'], 'revision': m['revision']} for m in materials])
+    if kind == 'material_link':
+        return any(ref == {'type': kind, 'link_id': link.get('link_id'), 'content_hash': digest(link),
+                           'relation_template': link.get('relation_template')}
+                   for link in package.get('material_links', []))
+    if kind == 'transaction_set':
+        return any(ref == {'type': kind, 'content_hash': transaction_hash,
+                           'transaction_set_version': 'sha256:' + transaction_hash,
+                           'requested_transaction_ids': link.get('transaction_ids', [])}
+                   for link in package.get('material_links', []))
+    if kind == 'alert_focus':
+        alert = package.get('alert') or {}
+        focuses = alert.get('focuses') or ([{'focus_id': alert.get('alert_id', 'original-focus')}]
+                                          if alert.get('original_focus') else [])
+        return any(ref == {'type': kind, 'focus_id': focus['focus_id'], 'revision': alert.get('revision')}
+                   for focus in focuses)
+    return False
+
+
 def validate_evidence(package, evidence, known_evidence):
     if not isinstance(evidence, list) or any(not isinstance(ref, dict) for ref in evidence):
         raise ValueError('证据必须为引用对象数组')
     known = {digest(ref) for ref in known_evidence}
-    transactions = {r['transaction_id'] for r in package.get('transactions', [])}
+    transactions = {r['transaction_id']: r for r in package.get('transactions', [])}
+    transaction_version = 'sha256:' + digest(sorted(package.get('transactions', []), key=lambda r: r['transaction_id']))
     for ref in evidence:
         is_known = digest(ref) in known
         kind = ref.get('type')
@@ -204,11 +243,16 @@ def validate_evidence(package, evidence, known_evidence):
         if kind in {'transaction', 'transactions'}:
             ids = [ref.get('transaction_id')] if kind == 'transaction' else ref.get('transaction_ids')
             if (is_known or not set(ref) - {'type', 'transaction_id', 'transaction_ids'}) and isinstance(ids, list) and ids and all(isinstance(tid, str) and tid in transactions for tid in ids):
-                continue
+                fields = ref.get('transaction_fields', {})
+                if (ref.get('transaction_set_version', transaction_version) == transaction_version
+                        and isinstance(fields, dict) and all(tid in ids and isinstance(paths, list) and paths
+                            and all(isinstance(path, str) and path in transactions[tid] for path in paths)
+                            for tid, paths in fields.items())):
+                    continue
         if kind == 'material':
             material = next((m for m in package.get('materials', []) if m['material_id'] == ref.get('material_id') and m['revision'] == ref.get('revision')), None)
             paths = ref.get('field_paths')
-            if (is_known or not set(ref) - {'type', 'material_id', 'revision', 'field_paths'}) and material and isinstance(paths, list) and paths and all(isinstance(path, str) for path in paths):
+            if (is_known or not set(ref) - {'type', 'material_id', 'revision', 'field_paths'}) and material and ref.get('content_hash', digest(material)) == digest(material) and isinstance(paths, list) and paths and all(isinstance(path, str) for path in paths):
                 try:
                     for path in paths:
                         value = material
@@ -223,9 +267,12 @@ def validate_evidence(package, evidence, known_evidence):
             if focus and ref.get('content_hash') == digest(focus):
                 continue
         if is_known and kind in {'query_scope', 'material_set', 'material_link', 'transaction_set', 'alert_focus'}:
-            # These structured computation/scope references must match an exact
-            # frozen server-produced reference. Clients cannot create them.
-            continue
+            # Exact server provenance is necessary, but its source must still resolve.
+            try:
+                if _current_structured_reference(package, ref):
+                    continue
+            except (KeyError, ValueError, TypeError, AttributeError):
+                pass
         raise ValueError('人工证据不能解析到当前快照，或不是允许的引用类型')
     return deepcopy(list({digest(ref): ref for ref in evidence}.values()))
 

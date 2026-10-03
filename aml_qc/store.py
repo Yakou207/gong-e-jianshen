@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from .annotations import annotation_pending, apply_reviews, build_annotations, prepare_decision, resolved_targets
+from .annotations import annotation_pending, apply_reviews, build_annotations, prepare_decision, resolved_targets, validate_evidence
 from .core import check_coverage, verify_claim
 from .depgraph import canonical, digest
 from .ingest import validate_case
@@ -649,11 +649,21 @@ class Store:
         decisions = {e.get("target_id"): e for e in current_events}
         confirmed = [i for i in (run or {}).get("issues", []) if decisions.get(i["issue_id"], {}).get("action") in {"confirm", "reconfirm"}]
         final_annotations = [{**a, "candidate_origin": a["origin"],
+                              "candidate_evidence": a["evidence"],
+                              **({"candidate_claim": a["claim"], "claim": a["review"].get("claim") or a["claim"]} if "claim" in a else {}),
                               "machine_candidate_value": a["candidate_value"] if a["origin"] == "machine_candidate" else None,
                               "machine_object": a["object"] if a["origin"] == "machine_candidate" else None,
+                              "evidence": a["review"]["evidence"], "origin": a["review"]["origin"],
+                              "reason": a["review"]["reason"],
+                              "execution_status": (a["review"].get("verification") or {}).get("execution_status", a["execution_status"]),
                               "value": a["review"]["final_value"], "final_value": a["review"]["final_value"],
                               "object": a["review"].get("object") or a["object"]}
                              for a in state["annotations"] if a["review"].get("valid")]
+        if state["review_status"] == "本次质检范围内通过":
+            known_evidence = [ref for a in state["annotations"] for ref in
+                              a["evidence"] + (a["review"].get("verification") or {}).get("evidence", [])]
+            for annotation in final_annotations:
+                validate_evidence(state["package"], annotation["evidence"], known_evidence)
         with self.connect() as db:
             historical_sources = [{"source_hash": row["source_hash"], "package": json.loads(row["package"]),
                                    "reason": row["reason"], "created_at": row["created_at"]}
