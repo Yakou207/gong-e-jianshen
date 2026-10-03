@@ -27,10 +27,12 @@
 
 !/scripts/
 !/scripts/export_case.py
+!/scripts/validate_evaluation.py
 
 !/tests/
 !/tests/test_*.py
 /tests/test_authoring_preparation.py
+/tests/test_case_assembly.py
 
 # These exclusions apply even if a directory is allowed above.
 **/*.[mM][dD]
