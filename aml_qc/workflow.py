@@ -24,6 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = "workflow-2.0"
 PROMPT_VERSION = "claims-response-2.6"
 PROMPT_ROOT = ROOT / "config/prompts/v2.6"
+FIXED_POLICY = {"version": "fixed-visible-scope-1", "steps": ["check_coverage", "query_transactions"],
+                "scope": "entire visible case interval, all directions and counterparties",
+                "applies_when": "model semantic review is required"}
 BASE_SYSTEM = (PROMPT_ROOT / "base.txt").read_text().strip()
 EXTRACT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "extraction.txt").read_text().strip()
 SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
@@ -246,11 +249,18 @@ def normalize_semantic(case, response, checks=None, tool_trace=(), execution=Non
             "leads": normalize_leads(case, response["leads"], lead_basis(case, checks, tool_trace), execution)}
 
 
-def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None):
+def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None, fixed_trace=()):
     data = semantic_input(case, checks)
+    if mode == "fixed":
+        # Cache bookkeeping is not model input: a fresh and reused read with
+        # identical facts must produce the same complete semantic request.
+        data["fixed_tool_results"] = [{k: row[k] for k in ("tool", "arguments", "result", "status", "result_ref")}
+                                      for row in fixed_trace]
+        data["lead_basis_catalog"] = [{k: row[k] for k in ("basis_ref", "kind", "content_hash")}
+                                      for row in lead_basis(case, checks, fixed_trace).values()]
     execution = evaluator.sources["source:execution"]["value"]
     base = [{"role": "system", "content": SEMANTIC_SYSTEM}, {"role": "user", "content": canonical(data)}]
-    initial = normalize_semantic(case, json_answer(model.complete(base)), checks, execution=execution)
+    initial = normalize_semantic(case, json_answer(model.complete(base)), checks, fixed_trace, execution=execution)
     if mode == "fixed":
         return {"semantic": initial, "agent_trace": [], "adaptive_rounds": 0}
     messages = [{"role": "system", "content": AGENT_SYSTEM},
@@ -319,6 +329,8 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                  "max_model_calls": 6, "max_output_tokens": 4096, "temperature": 0, "thinking": "disabled",
                  "tools": tool_definitions(), "extraction_prompt": EXTRACT_SYSTEM, "semantic_prompt": SEMANTIC_SYSTEM,
                  "agent_prompt": AGENT_SYSTEM, "response_contracts": contract_schemas()}
+    if mode == "fixed" and provider != "local":
+        execution["fixed_policy"] = deepcopy(FIXED_POLICY)
     if getattr(model, "execution_budget_spec", None) is not None:
         execution["evaluation_budget"] = deepcopy(model.execution_budget_spec)
     evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
@@ -444,8 +456,22 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                 attempt_trace = []
                 try:
                     checks = {k: result[k] for k in ["features", "claims", "claim_results", "material_results", "issues"]}
+                    fixed_trace = []
+                    if mode == "fixed":
+                        result["fixed_policy_reads"] = fixed_trace
+                        for name in FIXED_POLICY["steps"]:
+                            args = {} if name == "check_coverage" else {"start": case["coverage_start"], "end": case["coverage_end"]}
+                            try:
+                                value = execute_tool(case, schema, evaluator, name, args)
+                            except (ValueError, KeyError, TypeError) as exc:
+                                fixed_trace.append({"tool": name, "arguments": args, "status": "failed",
+                                                    "result_ref": None, "error": str(exc)})
+                                raise ModelError("固定取证未完成：" + str(exc)) from exc
+                            fixed_trace.append({"tool": name, "arguments": args, "result": value, "status": "completed",
+                                                "result_ref": "tool:" + name + ":" + digest(args)[:20],
+                                                "cache_status": evaluator.trace[-1]["status"]})
                     stage = evaluator.evaluate("agent_stage", "agent_stage" if mode == "agent" else "semantic_review", {}, all_dependencies + list(evaluator.nodes),
-                        lambda: model_stage(case, schema, evaluator, model, checks, mode, attempt_trace))
+                        lambda: model_stage(case, schema, evaluator, model, checks, mode, attempt_trace, fixed_trace))
                     stage_reused = evaluator.trace[-1]["status"] == "reused"
                     if stage_reused:
                         for entry in stage["agent_trace"]:
