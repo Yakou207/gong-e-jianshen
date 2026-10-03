@@ -26,12 +26,12 @@ def lead_case():
 def lead_model(value, suggestion=None, *, mode='fixed', tool=None):
     answer = semantic_response(value)
     answer['leads'] = [deepcopy(SUGGESTION if suggestion is None else suggestion)]
-    initial = answer if mode == 'fixed' else {**semantic_response(value), 'leads': []}
-    responses = [json_message({'claims': [], 'unresolved': []}), json_message(initial)]
+    responses = [json_message({'claims': [], 'unresolved': []})]
     if mode == 'agent':
         if tool:
             responses.append(tool)
-        responses.append(json_message(answer))
+        responses.append({"role": "assistant", "content": "取证结束。"})
+    responses.append(json_message(answer))
     return ScriptedModel(responses)
 
 

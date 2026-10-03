@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPLEMENTATIONS = [f'aml_qc/{name}.py' for name in ('core', 'ingest', 'schema', 'contracts', 'llm', 'depgraph',
     'workflow', 'claim_edits', 'leads', 'baseline', 'scoring_inputs', 'evaluation_budget')]
 IMPLEMENTATIONS += ['scripts/run_evaluation.py', 'scripts/score_evaluation.py', 'scripts/validate_evaluation.py']
-PROMPTS = [f'config/prompts/v2.8/{name}.txt' for name in ('agent', 'base', 'extraction', 'semantic')]
+PROMPTS = [f'config/prompts/v2.10/{name}.txt' for name in ('agent', 'base', 'extraction', 'semantic')]
 PROMPTS += ['config/prompts/b0-v1/direct.txt']
 GENERATION = {'temperature': 0, 'thinking': 'disabled', 'max_output_tokens': 4096}
 

@@ -86,11 +86,12 @@ class ScriptedModel:
 
 def script(value, extraction=None, tools=None):
     responses = [json_message(extraction if extraction is not None else
-                              {'claims': [], 'unresolved': []}),
-                 json_message(semantic_response(value))]
+                              {'claims': [], 'unresolved': []})]
     if tools is not None:
         responses.extend(tools)
-        responses.append(json_message(semantic_response(value)))
+        if len(tools) < 3:
+            responses.append({"role": "assistant", "content": "取证结束，等待最终输出。"})
+    responses.append(json_message(semantic_response(value)))
     return ScriptedModel(responses)
 
 
@@ -262,7 +263,7 @@ def test_request_capture_is_immutable_and_hash_matches(monkeypatch):
 
 
 @pytest.mark.parametrize('use_tools', [False, True])
-def test_json_format_is_requested_even_when_tools_are_available(monkeypatch, use_tools):
+def test_json_format_is_reserved_for_tool_free_output(monkeypatch, use_tools):
     response = tool_message() if use_tools else json_message({'ok': True})
     body = {'choices': [{'finish_reason': 'tool_calls' if use_tools else 'stop', 'message': response}]}
     sent = []
@@ -273,9 +274,11 @@ def test_json_format_is_requested_even_when_tools_are_available(monkeypatch, use
     model = DeepSeek()
     tools = [{'type': 'function', 'function': {'name': 'check_coverage', 'parameters': {'type': 'object'}}}] if use_tools else None
     assert model.complete([{'role': 'user', 'content': 'Return JSON or call a tool.'}], tools) == response
-    assert sent[0]['response_format'] == {'type': 'json_object'}
     if use_tools:
+        assert 'response_format' not in sent[0]
         assert sent[0]['tools'] == tools and sent[0]['tool_choice'] == 'auto'
+    else:
+        assert sent[0]['response_format'] == {'type': 'json_object'}
     assert model.calls[0]['request'] == sent[0]
     assert model.calls[0]['request_hash'] == digest(sent[0])
 
@@ -289,11 +292,12 @@ def test_agent_json_final_keeps_tool_results_and_never_repairs_invalid_output(mo
         if len(sent) == 1:
             response = json_message({'claims': [], 'unresolved': []})
         elif len(sent) == 2:
-            response = json_message(semantic_response(value))
-        elif len(sent) == 3:
             response = tool_message('query_transactions', {'direction': 'out'})
+        elif len(sent) == 3:
+            response = {'role': 'assistant', 'content': '取证结束。'}
         else:
             assert len(sent) == 4, 'No retry or repair request is allowed'
+            assert 'tools' not in payload
             response = (json_message(semantic_response(value)) if final_content == 'valid'
                         and payload.get('response_format') == {'type': 'json_object'}
                         else {'role': 'assistant', 'content': final_content})

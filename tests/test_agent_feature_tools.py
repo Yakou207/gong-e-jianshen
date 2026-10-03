@@ -89,8 +89,8 @@ def model_with_reads(value, *, basis_tool='compute_features'):
     args={'feature_code':'F2'} if basis_tool=='compute_features' else {}
     response['leads']=[{'observation':'机制夹具观察，业务意义未验证。','question':'是否需要另行核查这一观察？',
                        'basis_refs':['tool:'+basis_tool+':'+digest(args)[:20]]}]
-    return ScriptedModel([json_message({'claims':[],'unresolved':[]}),json_message(semantic_response(value)),
-        tool_message('read_schema',{},'schema-read'),tool_message('compute_features',{'feature_code':'F2'},'feature-read'),json_message(response)])
+    return ScriptedModel([json_message({'claims':[],'unresolved':[]}),
+        tool_message('read_schema',{},'schema-read'),tool_message('compute_features',{'feature_code':'F2'},'feature-read'),{'role':'assistant','content':'取证结束。'},json_message(response)])
 
 
 def test_schema_read_is_not_case_evidence_but_feature_read_can_bind_a_candidate():

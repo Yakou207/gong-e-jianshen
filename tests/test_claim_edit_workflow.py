@@ -51,7 +51,8 @@ def test_semantic_and_agent_receive_effective_claims_after_independent_review(tm
 
     def model():
         return ScriptedModel([json_message({'claims': [raw], 'unresolved': []}),
-                              json_message(semantic_response(package)), json_message(semantic_response(package))])
+                              {'role':'assistant','content':'取证结束。'},
+                              json_message(semantic_response(package))])
 
     store = Store(tmp_path / 'downstream.sqlite3')
     state = store.create(package)

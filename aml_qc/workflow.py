@@ -21,9 +21,9 @@ from .llm import DeepSeek, ModelError, json_answer
 from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "workflow-2.0"
-PROMPT_VERSION = "claims-response-2.8"
-PROMPT_ROOT = ROOT / "config/prompts/v2.8"
+VERSION = "workflow-2.1"
+PROMPT_VERSION = "claims-response-2.10"
+PROMPT_ROOT = ROOT / "config/prompts/v2.10"
 FIXED_POLICY = {"version": "fixed-visible-scope-1", "steps": ["check_coverage", "query_transactions"],
                 "scope": "entire visible case interval, all directions and counterparties",
                 "applies_when": "model semantic review is required"}
@@ -273,12 +273,12 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
         data["lead_basis_catalog"] = [{k: row[k] for k in ("basis_ref", "kind", "content_hash")}
                                       for row in lead_basis(case, checks, fixed_trace).values()]
     execution = evaluator.sources["source:execution"]["value"]
-    base = [{"role": "system", "content": SEMANTIC_SYSTEM}, {"role": "user", "content": canonical(data)}]
-    initial = normalize_semantic(case, json_answer(model.complete(base)), checks, fixed_trace, execution=execution)
     if mode == "fixed":
-        return {"semantic": initial, "agent_trace": [], "adaptive_rounds": 0}
+        base = [{"role": "system", "content": SEMANTIC_SYSTEM}, {"role": "user", "content": canonical(data)}]
+        semantic = normalize_semantic(case, json_answer(model.complete(base)), checks, fixed_trace, execution=execution)
+        return {"semantic": semantic, "agent_trace": [], "adaptive_rounds": 0}
     messages = [{"role": "system", "content": AGENT_SYSTEM},
-                {"role": "user", "content": canonical({"case": data, "initial_candidates": initial,
+                {"role": "user", "content": canonical({"case": data,
                     "available_material_ids": [m["material_id"] for m in case.get("materials", [])]})}]
     trace = attempt_trace if attempt_trace is not None else []
     rounds = 0
@@ -291,7 +291,7 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
                 not isinstance(c["function"].get("arguments"), str) for c in calls):
             raise ModelError("模型工具调用格式无效")
         if not calls:
-            return {"semantic": normalize_semantic(case, json_answer(message), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
+            break
         rounds += 1
         if len(calls) > 2:
             raise ModelError("模型单轮工具调用超出冻结预算，未执行本轮")
@@ -313,7 +313,7 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
                           "duration_ms": round((perf_counter() - start) * 1000, 3), "purpose": "模型根据已见返回结果选择的追加核查"})
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": canonical({**result, "lead_basis_ref": trace[-1]["result_ref"] if tool != "read_schema" else None})})
-    messages.append({"role": "user", "content": "追加工具预算已耗尽。请返回JSON最终候选；没有核实的事项保持pending_judgement。"})
+    messages.append({"role": "user", "content": "取证阶段已结束。请仅依据当前来源及实际工具返回，按规定JSON格式给出最终候选。取证阶段的文字是未验证草稿，不能作为证据；没有核实的事项保持未决。不得编造额外查询或修补失败工具结果。"})
     return {"semantic": normalize_semantic(case, json_answer(model.complete(messages)), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
 
 
@@ -345,6 +345,8 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                  "agent_prompt": AGENT_SYSTEM, "response_contracts": contract_schemas()}
     if mode == "fixed" and provider != "local":
         execution["fixed_policy"] = deepcopy(FIXED_POLICY)
+    if mode == "agent":
+        execution["agent_policy"] = "tool_review_then_single_json_final"
     if getattr(model, "execution_budget_spec", None) is not None:
         execution["evaluation_budget"] = deepcopy(model.execution_budget_spec)
     evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
