@@ -193,7 +193,7 @@ async function refresh() {
     info(results[0].reason.message, true); renderTasks();
   }
   if (results[1].status === "fulfilled") state.config = results[1].value;
-  else state.config = { deepseek_configured: false, config_error: results[1].reason.message };
+  else state.config = { deepseek_configured: false, deepseek_governed_ready: false, config_error: results[1].reason.message };
   $("#refresh-button").disabled = false;
   if (state.caseId && results[0].status === "fulfilled") await loadCase(state.caseId);
 }
@@ -239,6 +239,12 @@ function textWithSpan(text, sourceDocument) {
   else paragraph.textContent = text;
   return paragraph;
 }
+function responseRequirementsBlock(focus) {
+  const kinds = { explanation: "解释业务关系", verification_result: "报告核对结果", unresolved_item: "回应已知未决项" };
+  const items = node("ul", "checklist");
+  list(focus.response_requirements).forEach(item => items.append(node("li", "", `${kinds[item.kind] || item.kind}：${item.text}`)));
+  return append(node("div", "source-block"), node("div", "field-caption", `作者需回应 · ${compact(focus.focus_id)}`), items);
+}
 function sourcePanel() {
   const body = node("div");
   const tabs = node("div", "tab-bar");
@@ -259,11 +265,13 @@ function sourcePanel() {
     const alert = typeof a === "string" ? a : first(a?.original_focus, a?.focus_text, a?.text, a?.description, a?.original_text, a?.focus, a?.focus_points);
     const alertText = typeof alert === "string" ? alert : alert ? json(alert) : a ? json(a) : "未提供原始预警。预警理由复核任务需补充预警后完成相关检查。";
     content.append(append(node("div", "source-block"), node("div", "field-caption", `原始预警${a?.alert_id ? ` · ${a.alert_id}` : ""}`), node("div", "alert-box", alertText)));
+    list(a?.focuses).filter(focus => list(focus.response_requirements).length).forEach(focus => content.append(responseRequirementsBlock(focus)));
     const upgraded = list(p.review_scope?.upgraded_leads);
     upgraded.forEach(focus => {
       const block = node("div", `source-block ${state.evidence?.type === "upgraded_focus" && state.evidence.focus_id === focus.focus_id ? "lead-focus-highlight" : ""}`);
       append(block, node("div", "field-caption", `人工升级关注点 · ${compact(focus.focus_id)}`), node("div", "alert-box", focus.text || focus.question || "请核对完整升级记录"));
       const details = node("details", "source-details"); append(details, node("summary", "", "查看升级来源与处置依据"), pretty(focus)); block.append(details); content.append(block);
+      if (list(focus.response_requirements).length) content.append(responseRequirementsBlock(focus));
     });
     if (state.evidence?.type === "upgraded_focus" && !upgraded.some(focus => focus.focus_id === state.evidence.focus_id)) content.append(node("p", "lead-boundary", "引用的升级关注点已不在当前应回应范围；请在导出包的历史来源中核对。"));
     documents().forEach(document => {
@@ -677,17 +685,18 @@ function select(options, value) {
 }
 function runnerPanel() {
   const body = node("div", "section-body");
-  const provider = select([["local", "确定性演示（非 Agent）"], ["deepseek", "DeepSeek API", !state.config.deepseek_configured]], state.provider);
+  const paidReady = state.config.deepseek_governed_ready === true;
+  const provider = select([["local", "确定性演示（非 Agent）"], ["deepseek", "DeepSeek API", !paidReady]], state.provider);
   provider.id = "run-provider";
   const mode = select([["fixed", "固定流程"], ["agent", "Agent 动态取证", state.provider === "local"]], state.mode); mode.id = "run-mode";
   provider.addEventListener("change", () => { state.provider = provider.value; state.mode = provider.value === "deepseek" ? "agent" : "fixed"; renderDetail(); });
   mode.addEventListener("change", () => { state.mode = mode.value; });
   const controls = append(node("div", "runner-fields"), field("执行提供方", provider), field("运行方式", mode)); body.append(controls);
-  const runButton = button(state.busy ? "正在运行，请稍候…" : "开始质检", "primary run-button", () => executeRun("full")); runButton.disabled = state.busy; body.append(runButton);
-  const providerNote = state.provider === "local" ? "下次运行将使用确定性代码演示，不调用模型，也不替代 Agent 验收。当前结果的执行方式见下方轨迹。" : `下次运行将实际调用 ${state.config.model || "DeepSeek"}。工具调用与耗时按真实执行记录，模型候选仍须人工复核。`;
+  const runButton = button(state.busy ? "正在运行，请稍候…" : "开始质检", "primary run-button", () => executeRun("full")); runButton.disabled = state.busy || (state.provider === "deepseek" && !paidReady); body.append(runButton);
+  const providerNote = state.provider === "local" ? "下次运行将使用确定性代码演示，不调用模型，也不替代 Agent 验收。当前结果的执行方式见下方轨迹。" : paidReady ? `下次运行将实际调用 ${state.config.model || "DeepSeek"}。工具调用与耗时按真实执行记录，模型候选仍须人工复核。` : "当前 DeepSeek 选择不可运行；可切换到确定性演示。";
   body.append(node("p", "runner-note", providerNote));
-  if (!state.config.deepseek_configured) body.append(node("p", "runner-note", state.config.config_error ? "模型配置状态读取失败。修复服务后刷新。" : "DeepSeek 尚未配置。请在服务端环境变量中设置 API 密钥后重启服务，不要将密钥粘贴进案件材料。"));
-  return panel("下次运行配置", state.config.deepseek_configured ? "API 已配置" : "本地演示可用", body);
+  if (!paidReady) body.append(node("p", "runner-note", state.config.config_error ? "模型配置状态读取失败。修复服务后刷新。" : state.config.deepseek_disabled_reason || "付费入口不可用，请刷新后核对累计费用预算配置。"));
+  return panel("下次运行配置", paidReady ? "累计预算入口可用" : state.config.deepseek_configured ? "API 已配置 · 付费入口禁用" : "本地演示可用", body);
 }
 function tracePanel() {
   const body = node("div", "section-body");
@@ -695,6 +704,8 @@ function tracePanel() {
   const provenance = run().agent_verified === true ? "真实 Agent 执行" : run().provider === "local" ? "确定性流程 · 非 Agent" : run().mode === "agent" ? "DeepSeek Agent · 验收未确认" : `${label(run().provider)} · 固定流程`;
   if (run().run_id) body.append(append(node("div", "trace-header"), node("span", "", provenance), node("span", "", `${trace.length} 条实际记录`)));
   if (run().provider === "deepseek") body.append(node("p", "source-count", `模型 ${compact(run().execution?.model)} · ${compact(run().stats?.model_calls)} 次模型调用 · ${compact(run().stats?.adaptive_tool_calls)} 次追加工具调用`));
+  const budget = run().governed_development?.budget;
+  if (budget) body.append(node("p", "source-count", `本次返回的累计费用（${compact(budget.currency)} 估算，含已知失败费用）：已知支出 ${compact(budget.spent)}${budget.conservative_spent ? ` · 未知用量保守占用 ${compact(budget.conservative_spent)}（预留上限，非实际费用）` : ""} · 未定费用预留 ${compact(budget.held)} · 剩余 ${compact(budget.remaining)} · 原总额度 ${compact(budget.total)}。账本状态：${budget.status === "ready" ? "可继续" : budget.status === "stopped" ? "已停止" : "未知"}${budget.stop_reason ? `（${compact(budget.stop_reason)}）` : ""}。预留或未知费用仍待确认。`));
   const timeline = node("ol", "trace-list");
   trace.forEach(entry => {
     const item = node("li", `trace-item ${["completed", "success", "ok", "computed", "reused"].includes(entry.status) ? "success" : entry.status === "failed" ? "failed" : ""}`);
@@ -748,11 +759,13 @@ function reviewPanel() {
   append(form, fields, submit, node("p", "review-disclaimer", "人工记录只追加。确认问题并不解决问题；未决事项须显式裁决或补证。全案通过需满足后端必需检查与当前快照条件。"));
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (!reason.value.trim()) return;
-    const payload = { action: action.value, target_id: target.value, actor: actor.value, reason: reason.value.trim() };
+    const prior = [...reviews()].reverse().find(record => record.source_hash === state.detail.source_hash && record.target_id === target.value
+      && ["confirm", "reject", "request_correction", "dispute", "reconfirm", "close_item"].includes(record.action));
+    const payload = { action: action.value, target_id: target.value, actor: actor.value, reason: reason.value.trim(),
+      snapshot_id: run().snapshot_id, expected_event_id: prior?.event_id || null };
     const lead = reviewLead(target.value);
     if (lead) {
       if (!list(lead.allowed_actions).includes(action.value) || isStale()) { info("该观察当前不可执行此操作，请刷新后核对。", true); return; }
-      payload.snapshot_id = run().snapshot_id;
       payload.expected_event_id = lead.expected_event_id || null;
     }
     if (action.value === "close_item") payload.resolution = resolution.value;
@@ -798,13 +811,16 @@ async function mutate(path, payload, message) {
   } catch (error) { state.busy = false; renderDetail(); info(error.message, true); return false; }
 }
 async function executeRun(strategy) {
+  if (state.provider === "deepseek" && state.config.deepseek_governed_ready !== true) { info(state.config.deepseek_disabled_reason || "累计费用预算入口不可用，不能运行 DeepSeek。", true); return; }
   if (state.provider === "local" && state.mode === "agent") { info("确定性演示不是真实 Agent。请先配置并选择 DeepSeek API。", true); return; }
   await mutate(casePath("/run"), { mode: state.mode, provider: state.provider, strategy }, "本次运行已返回。请检查执行状态、未决事项与真实调用轨迹。");
 }
 function renderDelivery(target) {
   const actions = node("div", "delivery-top-actions");
-  const incremental = button(state.busy ? "正在重查…" : "执行增量重查", "primary", () => executeRun("incremental")); incremental.disabled = state.busy;
-  append(actions, incremental, button("全量重查", "secondary", () => executeRun("full")), button("修订来源", "secondary", () => openEditor("source")), node("span", "muted", `当前：${label(state.provider)} / ${label(state.mode)}，可在质检工作区切换`));
+  const disabled = state.busy || (state.provider === "deepseek" && state.config.deepseek_governed_ready !== true);
+  const incremental = button(state.busy ? "正在重查…" : "执行增量重查", "primary", () => executeRun("incremental")); incremental.disabled = disabled;
+  const full = button("全量重查", "secondary", () => executeRun("full")); full.disabled = disabled;
+  append(actions, incremental, full, button("修订来源", "secondary", () => openEditor("source")), node("span", "muted", `当前：${label(state.provider)} / ${label(state.mode)}，可在质检工作区切换`));
   target.append(actions, node("div", "scope-note", "来源变更先使旧候选失效；重算完成后，仍需人工处理受影响记录。下方数字仅展示后端实际返回的统计。"));
   target.append(migrationPanel());
   const grid = node("div", "delivery-grid");
@@ -813,7 +829,20 @@ function renderDelivery(target) {
   const statGrid = node("dl", "metric-grid");
   [["潜在影响节点", stats.potentially_affected], ["实际重算节点", stats.recomputed], ["复用节点", stats.reused], ["撤销候选", stats.revoked], ["实际工具调用", stats.tool_calls], ["实际模型调用", stats.model_calls]].forEach(([name, value]) => statGrid.append(append(node("div", "metric-block"), node("dt", "", name), node("dd", "", compact(value)))));
   const metricsBody = append(node("div", "section-body"), statGrid, node("p", "delivery-explain", `输入 tokens：${compact(stats.input_tokens)} · 输出 tokens：${compact(stats.output_tokens)} · 总耗时：${stats.duration_ms === undefined ? "未记录" : `${(stats.duration_ms / 1000).toFixed(2)} 秒`}。节点数不能直接换算为人工或算力节省比例。`));
+  const budget = run().governed_development?.budget;
+  if (budget) metricsBody.append(node("p", "delivery-explain", `本次返回的累计费用（${compact(budget.currency)} 估算，含已知失败费用）：已知支出 ${compact(budget.spent)}${budget.conservative_spent ? ` · 未知用量保守占用 ${compact(budget.conservative_spent)}（预留上限，非实际费用）` : ""} · 未定费用预留 ${compact(budget.held)} · 剩余 ${compact(budget.remaining)} · 原总额度 ${compact(budget.total)}。账本状态：${budget.status === "ready" ? "可继续" : budget.status === "stopped" ? "已停止" : "未知"}${budget.stop_reason ? `（${compact(budget.stop_reason)}）` : ""}。预留或未知费用仍待确认。`));
   left.append(panel(isStale() ? "上次执行统计（已失效）" : "本次执行统计", run().strategy === "full" ? "全量重查" : run().strategy ? label(run().strategy) : "运行记录", metricsBody));
+  const feeRuns = list(state.detail?.governed_fee_history).filter(record => record.governed_development?.budget);
+  if (feeRuns.length) {
+    const feeHistory = append(node("div", "section-body"), node("p", "delivery-explain", "以下累计值以各次运行回执保存时点为准。"));
+    [...feeRuns].reverse().forEach(record => {
+      const receipt = record.governed_development; const saved = receipt.budget;
+      feeHistory.append(append(node("article", "review-event"), node("strong", "", `${label(record.mode)} · ${label(record.run_status)}`),
+        node("p", "", `累计已知支出 ${compact(saved.spent)} ${compact(saved.currency)} · 未知用量保守占用 ${compact(saved.conservative_spent || "0")}（预留上限，非实际费用） · 未定费用预留 ${compact(saved.held)} · 剩余 ${compact(saved.remaining)} / ${compact(saved.total)}`),
+        node("small", "", `回执：${compact(receipt.attempt_id)} · 保存于 ${formatDate(record.created_at)}`)));
+    });
+    left.append(panel("费用回执历史", `${feeRuns.length} 次受预算约束运行`, feeHistory));
+  }
   const events = state.detail?.change_events ? list(state.detail.change_events) : reviews().filter(event => event.action === "source_changed" || event.action === "needs_review");
   const changesBody = node("div", "section-body"); const changes = node("div", "event-list");
   [...events].reverse().forEach(event => {

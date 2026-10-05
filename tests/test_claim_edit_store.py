@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from test_store import bound_review
+
 from aml_qc import llm
 from aml_qc.depgraph import business_result
 from aml_qc.ingest import load_case
@@ -71,7 +73,7 @@ def confirm_current(store, state):
     for annotation in state["annotations"]:
         store.review("seed-01", action="confirm", target_id=annotation["annotation_id"], reason="核对当前核验结果",
             snapshot_id=state["latest_run"]["snapshot_id"], expected_event_id=annotation["review"]["event_id"])
-    return store.review("seed-01", action="confirm", target_id="task", reason="限定范围检查已逐项完成")
+    return bound_review(store, "seed-01", action="confirm", target_id="task", reason="限定范围检查已逐项完成")
 
 
 def test_proposal_cannot_clear_machine_issue_until_review_and_recalculation(store):
@@ -271,9 +273,9 @@ def test_unresolved_amendment_cannot_be_rejected_or_closed_as_an_ordinary_issue(
     assert amendment["status"] == "needs_review"
     issue = next(i for i in current["latest_run"]["issues"] if i["type"] == "manual_claim_review")
     with pytest.raises(ValueError, match="不能通过否决"):
-        store.review("seed-01", action="reject", target_id=issue["issue_id"], reason="不能跳过重新审核")
+        bound_review(store, "seed-01", action="reject", target_id=issue["issue_id"], reason="不能跳过重新审核")
     with pytest.raises(ValueError, match="不可手动关闭"):
-        store.review("seed-01", action="close_item", target_id=issue["issue_id"], reason="不能手动清掉修订失效", resolution="addressed")
+        bound_review(store, "seed-01", action="close_item", target_id=issue["issue_id"], reason="不能手动清掉修订失效", resolution="addressed")
     with pytest.raises(ValueError, match="不能通过"):
         confirm_current(store, current)
     pending = propose(store, store.get("seed-01"), supersedes_amendment_id=amendment["amendment_id"])

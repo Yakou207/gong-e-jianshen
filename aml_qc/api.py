@@ -13,7 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .depgraph import canonical
 from .ingest import load_case
-from .llm import settings
+from .llm import GENERATION, settings
 from .store import Store
 from .workflow import run_review
 
@@ -41,8 +41,8 @@ class ReviewInput(BaseModel):
     new_value: str | None = None
     claim_patch: dict | None = None
     evidence: list[dict] | None = None
-    snapshot_id: str | None = None
-    expected_event_id: str | None = None
+    snapshot_id: str = Field(min_length=1)
+    expected_event_id: str | None
     previous_event_id: str | None = None
 
 
@@ -83,9 +83,22 @@ class MigrationApplyInput(BaseModel):
     actor: str = Field(default="reviewer", min_length=1, max_length=100)
 
 
-def create_app(db_path=None, seed=True):
+def create_app(db_path=None, seed=True, paid_runner=None):
     store = Store(db_path or settings()["AML_QC_DB"])
     run_lock = Lock()
+
+    def paid_disabled_reason(values):
+        if not values["DEEPSEEK_API_KEY"]:
+            return "DeepSeek 尚未配置 API 密钥，付费运行不可用"
+        if not callable(paid_runner):
+            return "尚未接入累计费用预算，付费运行已禁用"
+        preflight = getattr(paid_runner, "preflight", None)
+        if callable(preflight):
+            try:
+                preflight()
+            except Exception:
+                return "累计预算或价格核验未通过，付费运行已禁用"
+        return None
 
     @asynccontextmanager
     async def lifespan(app):
@@ -137,8 +150,11 @@ def create_app(db_path=None, seed=True):
     @app.get("/api/config")
     def config():
         values = settings()
+        disabled_reason = paid_disabled_reason(values)
         return {"deepseek_configured": bool(values["DEEPSEEK_API_KEY"]), "model": values["DEEPSEEK_MODEL"],
-                "max_model_calls": 6, "max_output_tokens_per_call": 4096, "synthetic_only": True,
+                "deepseek_governed_ready": disabled_reason is None, "deepseek_disabled_reason": disabled_reason,
+                "max_model_calls": 6, "max_output_tokens_per_call": GENERATION["max_output_tokens"],
+                "stage_max_output_tokens": dict(GENERATION["stage_max_output_tokens"]), "synthetic_only": True,
                 "version": "0.1.0", "review_roles": ["reviewer", "reviewer-2"]}
 
     @app.get("/api/cases")
@@ -182,8 +198,15 @@ def create_app(db_path=None, seed=True):
             previous = (state["latest_run"] or {}).get("snapshot") if body.strategy == "incremental" else None
             if body.provider == "local" and body.mode == "agent":
                 raise ValueError("离线规则不是Agent，请选择真实DeepSeek")
+            if body.provider == "deepseek":
+                disabled_reason = paid_disabled_reason(settings())
+                if disabled_reason is not None:
+                    raise HTTPException(409, disabled_reason)
             try:
-                result = run_review(state["package"], **body.model_dump(), previous=previous)
+                if body.provider == "deepseek":
+                    result = paid_runner(state["package"], mode=body.mode, strategy=body.strategy, previous=previous)
+                else:
+                    result = run_review(state["package"], **body.model_dump(), previous=previous)
             except Exception as exc:
                 # A failed rerun must replace the current status, never inherit a
                 # previous pass. Diagnostics deliberately omit raw HTTP objects.

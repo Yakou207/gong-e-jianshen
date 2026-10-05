@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from test_store import bound_review
+
 from aml_qc import core
 from aml_qc.annotations import validate_evidence
 from aml_qc.exports import export_bundle
@@ -48,7 +50,7 @@ def decide(store, state, annotation, action='confirm', **kwargs):
 def close_extraction(store, state):
     for issue in state['latest_run']['issues']:
         if issue['type'] == 'manual_extraction':
-            state = store.review(state['package']['case_id'], target_id=issue['issue_id'], action='close_item',
+            state = bound_review(store, state['package']['case_id'], target_id=issue['issue_id'], action='close_item',
                                  resolution='addressed', reason='人工完整检查理由，确认本次抽取的适用事实及限定词')
     return state
 
@@ -84,7 +86,7 @@ def test_every_label_and_final_task_confirmation_needed_for_deliverable(store):
     state = adjudicate_produced(store, state)
     assert state['can_pass'] and not state['annotation_pending'] and not state['open_items']
     assert store.export(cid)['deliverable']['annotations'] == []
-    state = store.review(cid, action='confirm', target_id='task', reason='逐标签与全部必需核验完成后确认任务')
+    state = bound_review(store, cid, action='confirm', target_id='task', reason='逐标签与全部必需核验完成后确认任务')
     exported = store.export(cid)
     assert exported['deliverable']['passed']
     assert len(exported['deliverable']['annotations']) == len(state['annotations'])
@@ -242,7 +244,7 @@ def test_failed_extraction_cannot_be_bypassed_with_no_candidate_na(store):
     state = decide(store, state, item(state, 'count'), 'not_applicable')
     assert state['pending_checks'] and not state['can_pass']
     with pytest.raises(ValueError, match='不能通过'):
-        store.review(state['package']['case_id'], action='confirm', target_id='task', reason='失败不能用范围裁决绕过')
+        bound_review(store, state['package']['case_id'], action='confirm', target_id='task', reason='失败不能用范围裁决绕过')
 
 
 def test_frozen_annotation_object_schema_and_export_survive_source_changes(store, tmp_path):
@@ -345,7 +347,7 @@ def test_final_export_uses_human_value_and_preserves_original_candidate(store,tm
     state=start(store,labels=BASE_LABELS)
     state=adjudicate_produced(store,close_extraction(store,state))
     cid=state['package']['case_id']
-    store.review(cid,action='confirm',target_id='task',reason='逐项完成后最终确认本次质检任务')
+    bound_review(store, cid,action='confirm',target_id='task',reason='逐项完成后最终确认本次质检任务')
     exported=store.export(cid)
     semantic=next(a for a in exported['deliverable']['annotations'] if a['kind']=='semantic')
     assert semantic['value']==semantic['final_value']=='addressed'
@@ -376,7 +378,7 @@ def test_current_label_reviews_become_unusable_when_executor_changes(store,monke
     state=start(store,labels=BASE_LABELS)
     state=adjudicate_produced(store,close_extraction(store,state))
     cid=state['package']['case_id']
-    store.review(cid,action='confirm',target_id='task',reason='最终确认当前版本全部标签')
+    bound_review(store, cid,action='confirm',target_id='task',reason='最终确认当前版本全部标签')
     monkeypatch.setattr('aml_qc.store.IMPLEMENTATION_HASH','different-adjudication-implementation')
     state=store.get(cid)
     assert state['engine_changed'] and state['stale']

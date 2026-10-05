@@ -12,6 +12,21 @@ from aml_qc.workflow import run_review
 DATA = Path(__file__).resolve().parents[1] / 'data' / 'synthetic'
 
 
+def review_binding(state, target_id):
+    actions = {'confirm', 'reject', 'request_correction', 'dispute', 'reconfirm', 'close_item'}
+    event = next((e for e in reversed(state['review_events'])
+                  if e.get('source_hash') == state['source_hash'] and e.get('target_id') == target_id
+                  and e.get('action') in actions), {})
+    return {'snapshot_id': (state['latest_run'] or {}).get('snapshot_id'),
+            'expected_event_id': event.get('event_id')}
+
+
+def bound_review(store, case_id, **kwargs):
+    for key, value in review_binding(store.get(case_id), kwargs['target_id']).items():
+        kwargs.setdefault(key, value)
+    return store.review(case_id, **kwargs)
+
+
 @pytest.fixture
 def store(tmp_path):
     return Store(tmp_path / 'audit.sqlite3')
@@ -37,7 +52,7 @@ def close_manual(store, case_id):
     for item in list(state['open_items']):
         kind = types.get(item['item_id'])
         if kind in {'manual_extraction', 'manual_focus', 'manual_material'}:
-            store.review(case_id, action='close_item', target_id=item['item_id'], reason='测试人工复核：已逐项检查对应范围和证据',
+            bound_review(store, case_id, action='close_item', target_id=item['item_id'], reason='测试人工复核：已逐项检查对应范围和证据',
                          actor='synthetic-reviewer', resolution='corresponds' if kind == 'manual_material' else 'addressed')
     for item in store.get(case_id)['annotations']:
         action = 'revise' if item['kind'] == 'semantic' else 'reconfirm' if 'reconfirm' in item['allowed_actions'] else 'confirm'
@@ -55,7 +70,7 @@ def make_passed(store, number=1):
     run_current(store, cid)
     state = close_manual(store, cid)
     assert state['can_pass']
-    return store.review(cid, action='confirm', target_id='task', reason='复核当前快照，确认限定范围内完成')
+    return bound_review(store, cid, action='confirm', target_id='task', reason='复核当前快照，确认限定范围内完成')
 
 
 def test_default_schema_is_pinned_and_mismatched_version_rejected(store):
@@ -81,12 +96,12 @@ def test_task_pass_requires_explicit_check_decisions_and_final_confirmation(stor
     state = create(store); cid = state['package']['case_id']
     run_current(store, cid)
     with pytest.raises(ValueError, match='不能通过'):
-        store.review(cid, action='confirm', target_id='task', reason='不能跳过未完成检查')
+        bound_review(store, cid, action='confirm', target_id='task', reason='不能跳过未完成检查')
     state = close_manual(store, cid)
     assert state['can_pass']
     assert state['review_status'] != '本次质检范围内通过'
     assert store.export(cid)['deliverable']['passed'] is False
-    state = store.review(cid, action='confirm', target_id='task', reason='当前快照全部检查已人工完成')
+    state = bound_review(store, cid, action='confirm', target_id='task', reason='当前快照全部检查已人工完成')
     assert state['review_status'] == '本次质检范围内通过'
     assert store.export(cid)['deliverable']['passed'] is True
 
@@ -95,12 +110,12 @@ def test_confirming_problem_does_not_resolve_it_or_allow_pass(store):
     state = create(store, 2); cid = state['package']['case_id']
     state = run_current(store, cid)
     problem = next(i for i in state['latest_run']['issues'] if i['type'] == 'claim_error')
-    store.review(cid, action='confirm', target_id=problem['issue_id'], reason='完整流水确认有三笔，次数陈述确实错误')
+    bound_review(store, cid, action='confirm', target_id=problem['issue_id'], reason='完整流水确认有三笔，次数陈述确实错误')
     state = close_manual(store, cid)
     assert any(i['item_id'] == problem['issue_id'] for i in state['open_items'])
     assert not state['can_pass']
     with pytest.raises(ValueError, match='不能通过'):
-        store.review(cid, action='confirm', target_id='task', reason='仅确认问题不代表补正完成')
+        bound_review(store, cid, action='confirm', target_id='task', reason='仅确认问题不代表补正完成')
     exported = store.export(cid)
     assert exported['deliverable']['confirmed_issues'] == []
     assert [i['issue_id'] for i in exported['candidates_and_open_items']['current_confirmed_issues']] == [problem['issue_id']]
@@ -117,7 +132,7 @@ def test_source_change_invalidates_pass_and_requires_new_snapshot_confirmation(s
     assert stale['latest_run']['run_id'] == old_run['run_id']
     assert not stale['can_pass']
     with pytest.raises(ValueError, match='旧快照'):
-        store.review(cid, action='reconfirm', target_id='task', reason='不能直接沿用旧结论')
+        bound_review(store, cid, action='reconfirm', target_id='task', reason='不能直接沿用旧结论')
     exported = store.export(cid)
     assert exported['deliverable']['snapshot_id'] is None
     assert exported['deliverable']['confirmed_issues'] == []
@@ -127,7 +142,7 @@ def test_source_change_invalidates_pass_and_requires_new_snapshot_confirmation(s
     assert new['review_status'] != '本次质检范围内通过'
     closed = close_manual(store, cid)
     assert closed['can_pass'] and closed['review_status'] != '本次质检范围内通过'
-    confirmed = store.review(cid, action='reconfirm', target_id='task', reason='已针对新快照重新复核')
+    confirmed = bound_review(store, cid, action='reconfirm', target_id='task', reason='已针对新快照重新复核')
     assert confirmed['review_status'] == '本次质检范围内通过'
     assert confirmed['review_events'][:len(old_events)] == old_events
     with store.connect() as db:
@@ -148,28 +163,28 @@ def test_failed_rerun_cannot_export_old_pass_or_reject_failure_away(store):
     assert not store.export(cid)['deliverable']['passed']
     assert store.export(cid)['deliverable']['confirmed_issues'] == []
     with pytest.raises(ValueError, match='不能通过否决'):
-        store.review(cid, action='reject', target_id='failure-1', reason='不能以误报处理执行失败')
+        bound_review(store, cid, action='reject', target_id='failure-1', reason='不能以误报处理执行失败')
     with pytest.raises(ValueError, match='不可手动关闭'):
-        store.review(cid, action='close_item', target_id='failure-1', reason='失败必须重新执行', resolution='not_applicable')
+        bound_review(store, cid, action='close_item', target_id='failure-1', reason='失败必须重新执行', resolution='not_applicable')
     with pytest.raises(ValueError, match='不能通过'):
-        store.review(cid, action='confirm', target_id='task', reason='不能把失败伪装为通过')
+        bound_review(store, cid, action='confirm', target_id='task', reason='不能把失败伪装为通过')
 
 
 def test_partial_judgement_can_be_closed_but_negative_verdict_stays_open(store):
     state = create(store); cid = state['package']['case_id']; state = run_current(store, cid)
     focus = next(i for i in state['latest_run']['issues'] if i['type'] == 'manual_focus')
-    state = store.review(cid, action='close_item', target_id=focus['issue_id'], reason='全文未回应指定关注点', resolution='not_addressed')
+    state = bound_review(store, cid, action='close_item', target_id=focus['issue_id'], reason='全文未回应指定关注点', resolution='not_addressed')
     assert any(i['item_id'] == focus['issue_id'] for i in state['open_items'])
     assert any(c['check_id'] == 'semantic' for c in state['pending_checks'])
     assert not state['can_pass']
-    state = store.review(cid, action='close_item', target_id=focus['issue_id'], reason='再次裁决：相关句子已回应关注点但不证明合理性', resolution='addressed')
+    state = bound_review(store, cid, action='close_item', target_id=focus['issue_id'], reason='再次裁决：相关句子已回应关注点但不证明合理性', resolution='addressed')
     assert all(i['item_id'] != focus['issue_id'] for i in state['open_items'])
 
 
 @pytest.mark.parametrize('action', ['dispute', 'request_correction'])
 def test_task_dispute_or_correction_survives_same_source_rerun_until_explicit_resolution(store, action):
     passed = make_passed(store); cid = passed['package']['case_id']
-    state = store.review(cid, action=action, target_id='task', reason='当前任务需进一步复核')
+    state = bound_review(store, cid, action=action, target_id='task', reason='当前任务需进一步复核')
     assert not state['can_pass']
     assert any(i['item_id'] == 'task-review' for i in state['open_items'])
     assert not store.export(cid)['deliverable']['passed']
@@ -177,20 +192,20 @@ def test_task_dispute_or_correction_survives_same_source_rerun_until_explicit_re
     assert any(i['item_id'] == 'task-review' for i in state['open_items'])
     close_manual(store, cid)
     with pytest.raises(ValueError, match='不能通过'):
-        store.review(cid, action='confirm', target_id='task', reason='重跑本身不能解除任务争议')
-    state = store.review(cid, action='close_item', target_id='task', resolution='not_applicable', reason='复核裁决：撤回该项请求，原请求不适用于本次范围')
+        bound_review(store, cid, action='confirm', target_id='task', reason='重跑本身不能解除任务争议')
+    state = bound_review(store, cid, action='close_item', target_id='task', resolution='not_applicable', reason='复核裁决：撤回该项请求，原请求不适用于本次范围')
     assert state['can_pass']
     assert state['review_status'] != '本次质检范围内通过'
-    state = store.review(cid, action='reconfirm', target_id='task', reason='显式裁决后重新确认当前快照')
+    state = bound_review(store, cid, action='reconfirm', target_id='task', reason='显式裁决后重新确认当前快照')
     assert state['review_status'] == '本次质检范围内通过'
 
 
 def test_disputed_issue_not_exported_as_current_confirmed_annotation(store):
     state = create(store, 2); cid = state['package']['case_id']; state = run_current(store, cid)
     issue_id = next(i['issue_id'] for i in state['latest_run']['issues'] if i['type'] == 'claim_error')
-    store.review(cid, action='confirm', target_id=issue_id, reason='第一次复核确认问题')
+    bound_review(store, cid, action='confirm', target_id=issue_id, reason='第一次复核确认问题')
     assert store.export(cid)['candidates_and_open_items']['current_confirmed_issues']
-    state = store.review(cid, action='dispute', target_id=issue_id, reason='对该问题标注提出争议')
+    state = bound_review(store, cid, action='dispute', target_id=issue_id, reason='对该问题标注提出争议')
     assert state['review_status'] == 'disputed'
     assert not state['can_pass']
     assert store.export(cid)['deliverable']['confirmed_issues'] == []
@@ -277,7 +292,9 @@ def test_lead_actions_keep_actor_and_close_even_when_origin_candidate_disappears
     semantic = semantic_response(state['package'])
     semantic['leads'] = [{'question':'经营范围是否需补充说明？', 'observation':'经营资料包含经营范围，建议人工核对说明。',
                           'basis_refs':['document:kyc']}]
-    model = ScriptedModel([json_message(extract_local(state['package'])), json_message(semantic)])
+    model = ScriptedModel([json_message(extract_local(state['package'])),
+        json_message({'focuses': semantic['focuses']}),
+        json_message({'gaps': semantic['gaps'], 'leads': semantic['leads']})])
     result = run_review(state['package'],provider='frozen',model=model)
     state = store.save_run(cid,state['source_hash'],result)
     issue_id = next(i['issue_id'] for i in result['issues'] if i['type']=='new_lead')
@@ -301,16 +318,16 @@ def test_lead_actions_keep_actor_and_close_even_when_origin_candidate_disappears
 def test_task_or_non_lead_issue_cannot_be_upgraded_as_new_lead(store):
     state = create(store,2); cid = state['package']['case_id']; state = run_current(store,cid)
     with pytest.raises(ValueError,match='具体线索'):
-        store.review(cid,action='upgrade_lead',target_id='task',reason='不能把整个任务升级为新增线索')
+        bound_review(store, cid,action='upgrade_lead',target_id='task',reason='不能把整个任务升级为新增线索')
     issue = next(i for i in state['latest_run']['issues'] if i['type']=='claim_error')
     with pytest.raises(ValueError,match='只有新增线索'):
-        store.review(cid,action='upgrade_lead',target_id=issue['issue_id'],reason='事实错误已是问题，不是新增线索')
+        bound_review(store, cid,action='upgrade_lead',target_id=issue['issue_id'],reason='事实错误已是问题，不是新增线索')
 
 
 def test_export_contains_frozen_sources_and_runs_to_resolve_old_review_spans(store):
     initial = create(store,2); cid = initial['package']['case_id']; initial = run_current(store,cid)
     issue = next(i for i in initial['latest_run']['issues'] if i['type']=='claim_error')
-    reviewed = store.review(cid,action='confirm',target_id=issue['issue_id'],reason='确认原版本次数矛盾')
+    reviewed = bound_review(store, cid,action='confirm',target_id=issue['issue_id'],reason='确认原版本次数矛盾')
     event_id = reviewed['review_events'][-1]['event_id']
     old_text = reviewed['package']['documents'][0]['text']
     updated = deepcopy(reviewed['package']); updated['documents'][0]['text'] = '修订后：'+old_text
@@ -342,3 +359,57 @@ def test_executor_change_invalidates_prior_pass_without_source_edit(store, monke
     assert current['engine_changed'] and current['stale']
     assert not current['can_pass']
     assert not store.export(cid)['deliverable']['passed']
+
+
+def test_old_page_cannot_confirm_a_new_ready_snapshot(store):
+    old = make_passed(store); cid = old['package']['case_id']
+    old_binding = review_binding(old, 'task')
+    run_current(store, cid)
+    current = close_manual(store, cid)
+    assert current['can_pass'] and current['latest_run']['snapshot_id'] != old_binding['snapshot_id']
+    before = deepcopy(current['review_events'])
+    with pytest.raises(ValueError, match='当前快照'):
+        store.review(cid, action='confirm', target_id='task', reason='旧页面不能确认未查看的新快照', **old_binding)
+    assert store.get(cid)['review_events'] == before
+    assert not store.export(cid)['deliverable']['passed']
+    assert bound_review(store, cid, action='reconfirm', target_id='task', reason='明确核对新快照')['can_pass']
+
+
+@pytest.mark.parametrize('target', ['task', 'issue'])
+def test_same_snapshot_target_event_cas_rejects_stale_human_overwrite(store, target):
+    state = create(store, 2); cid = state['package']['case_id']; state = run_current(store, cid)
+    target_id = 'task' if target == 'task' else next(i['issue_id'] for i in state['latest_run']['issues'] if i['type'] == 'claim_error')
+    binding = review_binding(state, target_id)
+    first = store.review(cid, action='dispute', target_id=target_id, reason='第一位人员保留争议', **binding)
+    with pytest.raises(ValueError, match='其他人员'):
+        store.review(cid, action='request_correction', target_id=target_id, reason='第二位人员仍使用旧事件', **binding)
+    assert store.get(cid)['review_events'] == first['review_events']
+    updated = bound_review(store, cid, action='request_correction', target_id=target_id, reason='刷新后明确处理当前争议')
+    assert updated['review_events'][-1]['previous_event_id'] == first['review_events'][-1]['event_id']
+    assert not updated['can_pass']
+
+
+@pytest.mark.parametrize('missing', ['snapshot_id', 'expected_event_id'])
+def test_task_and_issue_review_require_explicit_anchors(store, missing):
+    state = create(store, 2); cid = state['package']['case_id']; state = run_current(store, cid)
+    for target_id in ['task', next(i['issue_id'] for i in state['latest_run']['issues'] if i['type'] == 'claim_error')]:
+        binding = review_binding(state, target_id); del binding[missing]
+        with pytest.raises(ValueError, match='当前快照|预期事件'):
+            store.review(cid, action='dispute', target_id=target_id, reason='缺少页面所见锚点不能裁决', **binding)
+    assert store.get(cid)['review_events'] == state['review_events']
+
+
+def test_issue_review_rejects_prior_snapshot_but_new_source_has_own_event_chain(store):
+    state = create(store, 2); cid = state['package']['case_id']; state = run_current(store, cid)
+    target_id = next(i['issue_id'] for i in state['latest_run']['issues'] if i['type'] == 'claim_error')
+    old = bound_review(store, cid, action='dispute', target_id=target_id, reason='旧来源判断分歧')
+    binding = review_binding(old, target_id)
+    package = deepcopy(old['package']); package['documents'][1]['text'] += '新增背景资料。'
+    store.change_source(cid, package, '经办新增资料')
+    current = run_current(store, cid)
+    assert review_binding(current, target_id)['expected_event_id'] is None
+    with pytest.raises(ValueError, match='当前快照'):
+        store.review(cid, action='confirm', target_id=target_id, reason='旧页面不能确认新资料', **binding)
+    accepted = bound_review(store, cid, action='confirm', target_id=target_id, reason='核对新来源中的当前问题')
+    assert accepted['review_events'][-1]['previous_event_id'] is None
+    assert accepted['review_events'][-1]['source_hash'] != old['source_hash']

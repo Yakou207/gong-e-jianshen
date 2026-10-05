@@ -46,6 +46,34 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def _validate_response_requirements(focus, prefix, errors):
+    """Check optional authored task requirements without rewriting their text."""
+    if "response_requirements" not in focus:
+        return
+    prefix = f"{prefix}.response_requirements"
+    requirements = focus["response_requirements"]
+    if not isinstance(requirements, list) or not requirements:
+        errors.append(f"{prefix}必须为非空对象数组")
+        return
+    seen = set()
+    for index, requirement in enumerate(requirements):
+        item_prefix = f"{prefix}[{index}]"
+        if not isinstance(requirement, dict) or set(requirement) != {"kind", "text"}:
+            errors.append(f"{item_prefix}须且仅须包含kind和text")
+            continue
+        kind, text = requirement["kind"], requirement["text"]
+        if not isinstance(kind, str) or kind not in {"explanation", "verification_result", "unresolved_item"}:
+            errors.append(f"{item_prefix}.kind须为explanation、verification_result或unresolved_item")
+            continue
+        if not isinstance(text, str) or not text.strip():
+            errors.append(f"{item_prefix}.text须为具体需回应事项的非空文本")
+            continue
+        identity = kind, text.strip()
+        if identity in seen:
+            errors.append(f"{item_prefix}不可重复相同kind和text")
+        seen.add(identity)
+
+
 def load_case(path):
     """Load one JSON snapshot, or an unpacked case.json/CSV/document directory.
 
@@ -132,11 +160,12 @@ def validate_case(case):
                 continue
             if field == "upgraded_leads":
                 ids = []
-                for record in records:
+                for index, record in enumerate(records):
                     if any(not isinstance(record.get(key), str) or not record[key].strip() for key in ("focus_id", "text")):
                         errors.append("升级线索须有focus_id和具体需回应事项text")
                     else:
                         ids.append(record["focus_id"])
+                    _validate_response_requirements(record, f"review_scope.upgraded_leads[{index}]", errors)
                 if len(ids) != len(set(ids)):
                     errors.append("升级线索focus_id不可重复")
             else:
@@ -153,6 +182,24 @@ def validate_case(case):
                         errors.append("线索处置与原候选标识不一致")
                 if len(ids) != len(set(ids)):
                     errors.append("线索处置事件不可重复")
+    alert = case.get("alert")
+    if alert is not None:
+        if not isinstance(alert, dict):
+            errors.append("alert必须为对象")
+        elif "focuses" in alert:
+            focuses = alert["focuses"]
+            if not isinstance(focuses, list) or any(not isinstance(focus, dict) for focus in focuses):
+                errors.append("alert.focuses必须为对象数组")
+            else:
+                ids = []
+                for index, focus in enumerate(focuses):
+                    if any(not isinstance(focus.get(key), str) or not focus[key].strip() for key in ("focus_id", "text")):
+                        errors.append("原预警focuses须有focus_id和具体需回应事项text")
+                    else:
+                        ids.append(focus["focus_id"])
+                    _validate_response_requirements(focus, f"alert.focuses[{index}]", errors)
+                if len(ids) != len(set(ids)):
+                    errors.append("原预警focus_id不可重复")
     if case.get("currency") != "CNY":
         errors.append("首版仅支持CNY")
     amendment_ids, replaced = set(), set()

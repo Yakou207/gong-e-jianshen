@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from aml_qc.baseline import raw_case_input
 from scripts.validate_evaluation import EXPOSURES, validate_manifest
 
 
@@ -22,6 +23,12 @@ def write_ref(root, name, value):
     return {"path": name, "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+def visible_hash(package):
+    raw = (json.dumps(raw_case_input(package), ensure_ascii=False, sort_keys=True, indent=2,
+                      allow_nan=False) + "\n").encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
 @pytest.fixture
 def frozen(tmp_path):
     ref = write_ref(tmp_path, "source.json", {"purpose": "placeholder implementation source for file validation only"})
@@ -30,20 +37,28 @@ def frozen(tmp_path):
     cases, references = [], []
     for number in (1, 2):
         cid = f"case-{number}"
+        package = {"case_id": cid, "case_family": f"family-{number}", "task_mode": "annotation_only",
+                   "subject_account_id": "synthetic-account", "profile": {"data_origin": "synthetic"},
+                   "data_version": "1", "schema_version": "S1.0", "currency": "CNY", "timezone": "Asia/Shanghai",
+                   "coverage_start": "2026-09-01T00:00:00+08:00", "coverage_end": "2026-09-02T00:00:00+08:00",
+                   "transactions": [], "counterparties": [], "entity_mappings": [], "coverage": [], "materials": [],
+                   "documents": [{"document_id": "narrative", "revision": "1", "source": "synthetic",
+                                  "text": "Hand-written input syntax fixture only."}],
+                   "review_scope": {"target_labels": ["count", "material_relation"]}, "material_links": []}
         case = {"case_id": cid, "family_id": f"family-{number}", "split": "test",
-                **write_ref(tmp_path, f"{cid}.json", {"case_id": cid, "task_mode": "annotation_only",
-                    "review_scope": {"target_labels": ["count", "material_relation"]}, "material_links": []}),
+                **write_ref(tmp_path, f"{cid}.json", package),
                 "required_check_ids": ["known", "uncertain"]}
         cases.append(case)
         units = [{"reference_check_id": "known", "label": "count", "object_scope": {"account": "synthetic-account"},
-                  "applicability": "applicable", "adjudication_status": "adjudicated", "reference_value": False,
+                  "applicability": "applicable", "adjudication_status": "adjudicated", "reference_value": "contradicted",
                   "reason": "Hand-written negative reference for validator tests.",
                   "evidence_sets": [[{"document_id": "narrative", "span": [0, 3]}],
                                     [{"transaction_id": "one"}, {"transaction_id": "two"}]]},
                  {"reference_check_id": "uncertain", "label": "material_relation", "object_scope": {"material": "missing"},
                   "applicability": "applicable", "adjudication_status": "unresolved", "reference_value": None,
                   "reason": "Reviewers could not decide from available material.", "evidence_sets": []}]
-        record = {"case_id": cid, "case_sha256": case["sha256"], "reviewers": people, "check_units": units}
+        record = {"case_id": cid, "case_sha256": case["sha256"], "visible_case_sha256": visible_hash(package),
+                  "reviewers": people, "check_units": units}
         references.append({"case_id": cid, **write_ref(tmp_path, f"{cid}-reference.json", record)})
     method = {"model": "frozen-model-id", "generation": {"temperature": 0, "thinking": "disabled"},
               "runner": ref, "budget": {"max_calls": 6, "max_output_tokens": 4096,
@@ -109,6 +124,40 @@ def test_changed_exact_file_bytes_block_freeze(frozen, target):
     assert not report["frozen_valid"] and "file_hash_mismatch" in codes(report)
 
 
+@pytest.mark.parametrize("value", [None, "malformed", "0" * 64])
+def test_missing_or_different_reviewed_visible_projection_hash_blocks_freeze(frozen, value):
+    change_reference(frozen, lambda record: record.update(visible_case_sha256=value))
+    report = check(frozen)
+    assert not report["frozen_valid"]
+    assert "reference_visible_case_binding" in codes(report)
+    assert "reference_case_binding" not in codes(report)
+
+
+def test_original_case_hash_cannot_replace_visible_projection_hash(frozen):
+    change_reference(frozen, lambda record: record.update(visible_case_sha256=record["case_sha256"]))
+    assert "reference_visible_case_binding" in codes(check(frozen))
+
+
+def test_visible_projection_hash_cannot_replace_original_case_hash(frozen):
+    change_reference(frozen, lambda record: record.update(case_sha256=record["visible_case_sha256"]))
+    report = check(frozen)
+    assert not report["frozen_valid"] and "reference_case_binding" in codes(report)
+    assert "reference_visible_case_binding" not in codes(report)
+
+
+def test_changed_default_schema_invalidates_reference_without_changing_original_case_hash(frozen, monkeypatch):
+    from aml_qc import baseline
+    original = frozen[1]["cases"][0]["sha256"]
+    changed = deepcopy(baseline.load_schema())
+    changed["features"]["F1"]["minimum_days"] += 1
+    monkeypatch.setattr(baseline, "load_schema", lambda: changed)
+    report = check(frozen)
+    assert frozen[1]["cases"][0]["sha256"] == original
+    assert not report["frozen_valid"]
+    assert "reference_visible_case_binding" in codes(report)
+    assert "reference_case_binding" not in codes(report)
+
+
 def test_one_family_cannot_cross_split(frozen):
     cases = frozen[1]["cases"]
     cases[1].update(family_id=cases[0]["family_id"], split="development")
@@ -135,7 +184,7 @@ def use_product_seeds(frozen, *, shrink_targets):
         grouping["cases"][index].update(case_id=cid, economic_group="legacy-development", split="development")
         ref = manifest["references"][index]
         record = json.loads((path.parent / ref["path"]).read_text())
-        record.update(case_id=cid, case_sha256=case["sha256"], check_units=[
+        record.update(case_id=cid, case_sha256=case["sha256"], visible_case_sha256=visible_hash(package), check_units=[
             {"reference_check_id": label, "label": label, "object_scope": {"account": "merchant-001"},
              "applicability": "applicable", "adjudication_status": "unresolved", "reference_value": None,
              "reason": "Unresolved hand-written fixture; not a real human evaluation.", "evidence_sets": []} for label in labels])
@@ -209,6 +258,50 @@ def test_unresolved_count_cannot_be_hidden_or_promoted_to_answer(frozen):
     assert "unresolved_has_value" in codes(check(frozen))
 
 
+@pytest.mark.parametrize("label", ["unknown", "", 3, {"label": "count"}])
+def test_unknown_or_malformed_reference_labels_block_freeze(frozen, label):
+    def add_unit(record):
+        unit = deepcopy(record["check_units"][0])
+        unit.update(reference_check_id="extra", label=label)
+        record["check_units"].append(unit)
+    change_reference(frozen, add_unit)
+    frozen[1]["cases"][0]["required_check_ids"].append("extra")
+    frozen[1]["reference_counts"]["adjudicated"] += 1
+    report = check(frozen)
+    assert not report["frozen_valid"]
+    assert "reference_label_not_scoreable" in codes(report)
+
+
+@pytest.mark.parametrize("value", [False, True, 0, "", "addressed", ["supported"], {"value": "supported"}])
+def test_out_of_domain_reference_values_block_freeze(frozen, value):
+    change_reference(frozen, lambda r: r["check_units"][0].update(reference_value=value))
+    report = check(frozen)
+    assert not report["frozen_valid"]
+    assert "reference_value_not_scoreable" in codes(report)
+
+
+@pytest.mark.parametrize("value", ["supported", "contradicted", "insufficient_evidence"])
+def test_valid_reference_values_include_evidence_insufficiency(frozen, value):
+    change_reference(frozen, lambda r: r["check_units"][0].update(reference_value=value))
+    assert check(frozen)["frozen_valid"]
+
+
+@pytest.mark.parametrize("value", ["corresponds", "mismatch", "insufficient", "pending_judgement"])
+def test_business_uncertainty_is_distinct_from_unresolved_reference_adjudication(frozen, value):
+    def adjudicate(record):
+        record["check_units"][1].update(adjudication_status="adjudicated", reference_value=value,
+                                      evidence_sets=deepcopy(record["check_units"][0]["evidence_sets"]))
+    change_reference(frozen, adjudicate)
+    frozen[1]["reference_counts"].update(adjudicated=3, unresolved=1)
+    assert check(frozen)["frozen_valid"]
+
+
+def test_not_applicable_reference_can_keep_null_without_becoming_a_prediction(frozen):
+    change_reference(frozen, lambda r: r["check_units"][0].update(
+        applicability="not_applicable", reference_value=None))
+    assert check(frozen)["frozen_valid"]
+
+
 def test_fixed_agent_budget_must_match_while_single_read_b0_can_differ(frozen):
     assert check(frozen)["frozen_valid"]
     frozen[1]["methods"]["Agent"]["budget"]["max_calls"] = 7
@@ -243,6 +336,83 @@ def test_declared_answer_exposure_blocks_blind_freeze(frozen, exposure):
     report = check(frozen)
     assert "reference_exposure" in codes(report) and not report["blind_reference_declared_clear"]
     assert exposure in report["personnel_declarations"][1]["declared_exposures"]
+
+
+def declare_author(record, disclosure="The fictional reviewer authored the prose; author bias is disclosed."):
+    reviewer = record["reviewers"][1]
+    reviewer["exposure"]["authored_narrative"] = True
+    reviewer["authorship_bias_disclosure"] = disclosure
+
+
+def test_default_strict_protocol_still_blocks_disclosed_author_exposure(frozen):
+    change_reference(frozen, declare_author)
+    report = check(frozen)
+    assert not report["frozen_valid"] and "reference_exposure" in codes(report)
+    assert report["reference_protocol"] == "strict-blind-1"
+
+
+def test_independent_initial_protocol_preserves_disclosed_author_bias_without_claiming_blindness(frozen):
+    frozen[1]["reference_protocol"] = "independent-initial-references-1"
+    for index in range(2):
+        change_reference(frozen, declare_author, index)
+    report = check(frozen)
+    assert report["frozen_valid"]
+    assert not report["blind_reference_declared_clear"]
+    assert report["author_reviewer_count"] == 1
+    assert report["exposure_declaration_scope"] == "before_independent_initial_reference_seal"
+    author = report["personnel_declarations"][1]
+    assert author["declared_exposures"] == ["authored_narrative"]
+    assert author["authorship_bias_disclosure"].startswith("The fictional reviewer authored")
+
+
+@pytest.mark.parametrize("disclosure", [None, "", "   "])
+def test_author_exposure_without_bias_disclosure_blocks_independent_initial_freeze(frozen, disclosure):
+    frozen[1]["reference_protocol"] = "independent-initial-references-1"
+    change_reference(frozen, lambda r: declare_author(r, disclosure))
+    report = check(frozen)
+    assert not report["frozen_valid"]
+    assert "authorship_bias_disclosure_missing" in codes(report)
+
+
+@pytest.mark.parametrize("exposure", [x for x in EXPOSURES if x != "authored_narrative"])
+def test_independent_initial_protocol_keeps_non_authoring_exposures_blocked(frozen, exposure):
+    frozen[1]["reference_protocol"] = "independent-initial-references-1"
+    def expose(record):
+        declare_author(record)
+        record["reviewers"][1]["exposure"][exposure] = True
+    change_reference(frozen, expose)
+    report = check(frozen)
+    assert not report["frozen_valid"] and "reference_exposure" in codes(report)
+    assert exposure in report["personnel_declarations"][1]["declared_exposures"]
+
+
+@pytest.mark.parametrize("protocol", ["unknown", None, {"protocol": "independent-initial-references-1"}])
+def test_unknown_or_malformed_reference_protocol_blocks_freeze(frozen, protocol):
+    frozen[1]["reference_protocol"] = protocol
+    assert "reference_protocol_invalid" in codes(check(frozen))
+
+
+def test_generator_private_access_declaration_cannot_be_omitted(frozen):
+    def omit(record):
+        record["reviewers"][1]["exposure"].pop("saw_generator_private", None)
+    change_reference(frozen, omit)
+    report = check(frozen)
+    assert not report["frozen_valid"] and "exposure_declaration_missing" in codes(report)
+
+
+@pytest.mark.parametrize("change,expected", [("one_reviewer", "person_declarations_missing"),
+                                           ("same_reviewer", "duplicate_person")])
+def test_author_protocol_keeps_two_distinct_reference_reviewers_required(frozen, change, expected):
+    frozen[1]["reference_protocol"] = "independent-initial-references-1"
+    def alter(record):
+        declare_author(record)
+        if change == "one_reviewer":
+            record["reviewers"] = record["reviewers"][1:]
+        else:
+            record["reviewers"][1]["person_id"] = record["reviewers"][0]["person_id"]
+    change_reference(frozen, alter)
+    report = check(frozen)
+    assert not report["frozen_valid"] and expected in codes(report)
 
 
 def test_same_person_under_case_and_spacing_changes_is_not_two_reviewers(frozen):

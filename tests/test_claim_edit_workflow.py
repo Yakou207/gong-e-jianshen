@@ -7,7 +7,7 @@ from aml_qc.depgraph import business_result
 from aml_qc.store import Store
 from aml_qc.workflow import run_review
 from test_claim_edit_safety import case, claim, amendment, approve_replacement
-from test_model_safety import MODEL, ScriptedModel, json_message, semantic_response
+from test_model_safety import MODEL, ScriptedModel, json_message, response_message, support_response
 
 
 def test_fidelity_context_ignores_collection_order_and_transactions_but_not_text():
@@ -50,9 +50,9 @@ def test_semantic_and_agent_receive_effective_claims_after_independent_review(tm
     raw = {'kind': 'count', 'operator': 'exact', 'value': 99, 'quote': quote, 'direction': 'out', 'counterparty_ref': '乙公司'}
 
     def model():
-        return ScriptedModel([json_message({'claims': [raw], 'unresolved': []}),
+        return ScriptedModel([json_message({'claims': [raw], 'unresolved': []}), response_message(package),
                               {'role':'assistant','content':'取证结束。'},
-                              json_message(semantic_response(package))])
+                              json_message(support_response(package))])
 
     store = Store(tmp_path / 'downstream.sqlite3')
     state = store.create(package)
@@ -67,7 +67,7 @@ def test_semantic_and_agent_receive_effective_claims_after_independent_review(tm
     assert full['machine_claims'][0]['value'] == 99
     assert full['claims'][0]['value'] == 1
     assert full['claim_results'][0]['result'] == 'supported'
-    for request in scripted.calls[1:]:
+    for request in scripted.calls[2:]:
         payload = request['request']['messages'][1]['content']
         assert 'human_reviewed' in payload and proposed['claim_id'] in payload
         assert '"value":99' not in payload

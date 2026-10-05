@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .ingest import validate_case
-from .llm import DeepSeek
+from .llm import GENERATION, DeepSeek, generation_request
 from .schema import LABEL_VALUES, load_schema
 
 
@@ -57,7 +57,8 @@ RAW_FIELDS = {
     "coverage": [{**dict.fromkeys(("coverage_id", "source", "account_id", "start", "end", "status", "reliable", "revision", "meaning")),
                   "fields": [None], "missing_ranges": [{**_RANGE, "fields": [None]}]}],
     "entity_mappings": [dict.fromkeys(("mapping_id", "source_ref", "target_token", "confirmed", "revision", "basis"))],
-    "materials": [{**dict.fromkeys(("material_id", "revision", "material_type", "source", "amount", "amount_cents", "currency", "text")),
+    "materials": [{**dict.fromkeys(("material_id", "revision", "material_type", "source", "amount", "amount_cents", "currency", "text",
+                                    "order_id", "original_payment_transaction_id", "refund_transaction_id")),
                    "subject": dict.fromkeys(("account_id", "role")),
                    "counterparty": dict.fromkeys(("counterparty_token", "credit_code", "account_no_masked", "role")), "period": _RANGE}],
     "material_links": [{**dict.fromkeys(("link_id", "material_id", "revision", "material_revision", "claim_or_issue_id", "relation_template", "schema_version", "provenance")),
@@ -306,8 +307,7 @@ def run_baseline(case, *, provider="frozen", model=None):
                                "prompt_hash": digest(messages[0]["content"]), "schema_hash": digest(visible["schema"]),
                                "prompt_file_sha256": hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest(),
                                "output_contract_hash": digest(output_schema), "implementation_hash": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                               "max_model_calls": 1, "tools_available": False, "temperature": 0,
-                               "thinking": "disabled", "max_output_tokens": 4096}
+                               "max_model_calls": 1, "tools_available": False, **deepcopy(GENERATION)}
         if model is None:
             if provider != "deepseek":
                 raise ValueError("frozen B0 requires an injected model")
@@ -316,8 +316,9 @@ def run_baseline(case, *, provider="frozen", model=None):
         if getattr(model, "execution_budget_spec", None) is not None:
             result["execution"]["evaluation_budget"] = deepcopy(model.execution_budget_spec)
         prior_calls = len(getattr(model, "calls", []))
-        request = {"model": getattr(model, "model", None), "messages": deepcopy(messages), "tools": None}
-        record = {"request": request, "request_hash": digest(request), "status": "started", "usage": None, "provider_records": []}
+        request = generation_request(getattr(model, "model", None), messages)
+        record = {"request": request, "request_hash": digest(request), "status": "started", "usage": None,
+                  "provider_records": [], "stage": "final", "generation": deepcopy(GENERATION)}
         result["call_records"].append(record)
         result["stats"]["model_calls"] = 1
         try:
@@ -332,7 +333,7 @@ def run_baseline(case, *, provider="frozen", model=None):
         finally:
             record["duration_ms"] = round((perf_counter() - call_started) * 1000, 3)
             records = getattr(model, "calls", [])[prior_calls:]
-            record["provider_records"] = [{k: deepcopy(r[k]) for k in ("request_hash", "status", "usage", "duration_ms", "model_returned", "system_fingerprint", "finish_reason", "dispatch_status", "budget_event_id") if k in r} for r in records]
+            record["provider_records"] = [{k: deepcopy(r[k]) for k in ("request", "request_hash", "status", "usage", "duration_ms", "model_returned", "system_fingerprint", "finish_reason", "dispatch_status", "budget_event_id", "stage", "generation") if k in r} for r in records]
             if len(records) == 1:
                 for key in ("dispatch_status", "budget_event_id"):
                     if key in records[0]:
@@ -342,7 +343,8 @@ def run_baseline(case, *, provider="frozen", model=None):
                     result["raw_response"] = {k: deepcopy(v) for k, v in records[0]["response"].items() if k in {"role", "content", "tool_calls"}}
                 record["response"] = deepcopy(result["raw_response"])
                 record["usage"] = deepcopy(records[0].get("usage")) or None
-                record["provider_request_hash"] = records[0].get("request_hash")
+                if "request_hash" in records[0]:
+                    record["provider_request_hash"] = records[0]["request_hash"]
                 record["model_returned"] = records[0].get("model_returned")
                 record["finish_reason"] = records[0].get("finish_reason")
                 values = [usage.get(k) for k in ("prompt_tokens", "completion_tokens", "total_tokens")]

@@ -15,6 +15,22 @@
 !/config/prompts/
 !/config/prompts/v2.10/
 !/config/prompts/v2.10/*.txt
+!/config/prompts/v2.17/
+!/config/prompts/v2.17/*.txt
+!/config/prompts/v2.18/
+!/config/prompts/v2.18/*.txt
+!/config/prompts/v2.19/
+!/config/prompts/v2.19/*.txt
+!/config/prompts/v2.20/
+!/config/prompts/v2.20/*.txt
+!/config/prompts/v2.21/
+!/config/prompts/v2.21/*.txt
+!/config/prompts/v2.22/
+!/config/prompts/v2.22/*.txt
+!/config/prompts/v2.23/
+!/config/prompts/v2.23/*.txt
+!/config/prompts/v2.24/
+!/config/prompts/v2.24/*.txt
 !/config/prompts/b0-v1/
 !/config/prompts/b0-v1/*.txt
 
@@ -29,6 +45,7 @@
 
 !/scripts/
 !/scripts/export_case.py
+!/scripts/prepare_reference_workpack.py
 !/scripts/validate_evaluation.py
 !/scripts/score_evaluation.py
 !/scripts/run_evaluation.py

@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from test_store import bound_review
+
 from aml_qc import core
 from aml_qc.annotations import validate_evidence
 from aml_qc.exports import export_bundle
@@ -24,7 +26,7 @@ def test_delivered_human_label_uses_its_evidence_and_keeps_candidate_provenance(
     state = decide(store, state, annotation, 'revise', new_value='addressed', evidence=proof,
                    reason='机制测试：人工明确选择当前原文片段')
     cid = state['package']['case_id']
-    store.review(cid, action='confirm', target_id='task', reason='机制测试：最终确认限定范围')
+    bound_review(store, cid, action='confirm', target_id='task', reason='机制测试：最终确认限定范围')
     exported = store.export(cid)
     delivered = next(a for a in exported['deliverable']['annotations'] if a['kind'] == 'semantic')
     assert delivered['evidence'] == delivered['review']['evidence'] == proof
@@ -54,7 +56,7 @@ def test_delivered_span_repair_projects_the_reverified_claim(tmp_path):
     for a in list(state['annotations']):
         if a['label']=='count':continue
         state = decide(store,state,a,'revise',new_value='addressed') if a['kind']=='semantic' else decide(store,state,a)
-    cid = state['package']['case_id']; store.review(cid,action='confirm',target_id='task',reason='机制测试：修复引用后完成')
+    cid = state['package']['case_id']; bound_review(store, cid,action='confirm',target_id='task',reason='机制测试：修复引用后完成')
     delivered = next(a for a in store.export(cid)['deliverable']['annotations'] if a['kind']=='claim')
     assert core.validate_span(state['package'],delivered['claim']['source'],delivered['claim']['text'])
     assert delivered['claim'] == delivered['review']['claim']
@@ -100,7 +102,7 @@ def test_export_rechecks_final_evidence_before_delivery(tmp_path, monkeypatch):
     store = Store(tmp_path/'export-gate.sqlite3')
     state = adjudicate_produced(store, close_extraction(store, start(store, labels=BASE_LABELS)))
     cid = state['package']['case_id']
-    state = store.review(cid, action='confirm', target_id='task', reason='机制测试：最终确认')
+    state = bound_review(store, cid, action='confirm', target_id='task', reason='机制测试：最终确认')
     assert state['review_status'] == '本次质检范围内通过'
     ref = next(r for a in state['annotations'] for r in a['review']['evidence'] if r['type']=='query_scope')
     ref['scope']['transaction_set_hash'] = 'wrong'

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from test_store import bound_review
+
 from aml_qc.depgraph import business_result, digest
 from aml_qc.ingest import load_case
 from aml_qc.schema import load_schema
@@ -43,9 +45,9 @@ def passed(store,s):
             snapshot_id=a['snapshot_id'],expected_event_id=None,evidence=a['evidence'])
     for issue in s['latest_run']['issues']:
         if issue['type']=='manual_extraction':
-            s=store.review(cid,target_id=issue['issue_id'],action='close_item',resolution='addressed',reason='仅F1/F2范围，已核对抽取未决')
+            s=bound_review(store, cid,target_id=issue['issue_id'],action='close_item',resolution='addressed',reason='仅F1/F2范围，已核对抽取未决')
     assert s['can_pass']
-    return store.review(cid,target_id='task',action='confirm',reason='本次限定任务人工完成确认')
+    return bound_review(store, cid,target_id='task',action='confirm',reason='本次限定任务人工完成确认')
 
 
 def test_two_selected_cases_migrate_individually_third_and_business_data_stay_unchanged(store):

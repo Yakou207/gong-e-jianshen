@@ -15,13 +15,14 @@ from pathlib import Path
 import pytest
 
 from aml_qc import llm
+from aml_qc.baseline import raw_case_input
 from aml_qc.depgraph import digest
+from aml_qc.llm import GENERATION, generation_request
 from scripts.validate_evaluation import EXPOSURES, validate_manifest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "offline-runner-fixture"
-GENERATION = {"temperature": 0, "thinking": "disabled", "max_output_tokens": 4096}
 IMPLEMENTATIONS = ["aml_qc/" + name + ".py" for name in (
     "core", "ingest", "schema", "contracts", "llm", "depgraph", "workflow", "claim_edits",
     "leads", "baseline", "scoring_inputs", "evaluation_budget")] + [
@@ -55,9 +56,9 @@ def forbid_credentials_and_network(monkeypatch):
 @pytest.mark.parametrize("stamp", [
     "2026-10-03T10:00:00+08:00",  # Weekend morning and afternoon are off-peak.
     "2026-10-04T16:00:00+08:00",
-    "2026-09-29T08:58:59+08:00",  # Entire 60-second request stays before 09:00.
+    "2026-09-29T08:56:59+08:00",  # The 180-second guard stays before 09:00.
     "2026-09-29T12:00:00+08:00",
-    "2026-09-29T13:58:59+08:00",
+    "2026-09-29T13:56:59+08:00",
     "2026-09-29T18:00:00+08:00",
     "2026-09-28T23:59:30+08:00",  # Crossing midnight does not change this tariff.
 ])
@@ -85,6 +86,7 @@ def test_live_weekday_peak_hours_are_unknown_without_verified_holiday_calendar(m
 
 @pytest.mark.parametrize("stamp", [
     "2026-09-29T08:59:00+08:00",
+    "2026-09-29T08:57:30+08:00",
     "2026-09-29T13:59:30+08:00",
     "2026-10-01T08:59:30+08:00",
 ])
@@ -141,7 +143,9 @@ def experiment(tmp_path):
         "documents": [{"document_id": "narrative", "revision": "1", "source": "synthetic",
                        "text": "仅用于离线持久化机制测试，无业务真值。"}]}
     cref = json_ref(tmp_path, "case.json", case)
-    reference = {"case_id": case["case_id"], "case_sha256": cref["sha256"], "reviewers": people,
+    reference = {"case_id": case["case_id"], "case_sha256": cref["sha256"],
+        "visible_case_sha256": hashlib.sha256((json.dumps(raw_case_input(case), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()).hexdigest(),
+        "reviewers": people,
         "check_units": [{"reference_check_id": "f1", "label": "F1", "object_scope": {"account_id": "fixture-account"},
             "applicability": "applicable", "adjudication_status": "adjudicated", "reference_value": "undeterminable",
             "reason": "Hand-written persistence oracle; not a real independent AML judgment.",
@@ -150,7 +154,7 @@ def experiment(tmp_path):
     placeholder = json_ref(tmp_path, "mechanism-only.json", {"purpose": "hand-written test specification; no actual quality claim"})
     method = {"model": MODEL, "generation": deepcopy(GENERATION),
         "runner": file_ref(tmp_path, ROOT / "aml_qc/workflow.py"),
-        "budget": {"max_calls": 6, "max_output_tokens": 4096, "total_token_budget": 10_000_000, "currency_limit": "10"}}
+        "budget": {"max_calls": 6, "max_output_tokens": GENERATION["max_output_tokens"], "total_token_budget": 10_000_000, "currency_limit": "10"}}
     pricing = {"currency": "CNY", "effective_at": stamp.isoformat(),
         "valid_until": (stamp + timedelta(days=1)).isoformat(), "source_url": "https://example.invalid/offline-mechanism-price",
         "unit_tokens": 1_000_000, "rates": {"input_cache_hit": "0.1", "input_cache_miss": "1", "output": "2"}}
@@ -169,7 +173,7 @@ def experiment(tmp_path):
             "dependency_lock": file_ref(tmp_path, ROOT / "uv.lock"),
             "scorer": file_ref(tmp_path, ROOT / "scripts/score_evaluation.py"),
             "tools": [file_ref(tmp_path, ROOT / name) for name in IMPLEMENTATIONS],
-            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v2.10").glob("*.txt"))]
+            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v2.24").glob("*.txt"))]
                        + [file_ref(tmp_path, ROOT / "config/prompts/b0-v1/direct.txt")],
             "family_grouping": json_ref(tmp_path, "grouping.json", {"reviewed_by": [people[0]], "cases": [
                 {"case_id": case["case_id"], "economic_group": case["case_family"], "split": "test",
@@ -190,7 +194,7 @@ class OfflineModel:
         self.observed_calls = calls
         self.unknown_usage, self.malformed, self.unfinished = unknown_usage, malformed, unfinished
 
-    def complete(self, messages, tools=None):
+    def complete(self, messages, tools=None, stage=None):
         self.observed_calls.append(self.method)
         if self.method == "B0":
             output = {"checks": [{"check_id": "local-f1", "label": "F1",
@@ -202,8 +206,7 @@ class OfflineModel:
         else:
             output = {"claims": [], "unresolved": []}
         message = {"role": "assistant", "content": "not-json" if self.malformed else json.dumps(output)}
-        request = {"model": self.model, "messages": deepcopy(messages), "tools": deepcopy(tools),
-                   "temperature": 0, "thinking": {"type": "disabled"}, "max_tokens": 4096}
+        request = generation_request(self.model, deepcopy(messages), deepcopy(tools), stage=stage)
         self.calls.append({"request": request, "request_hash": digest(request), "status": "completed",
             "model_returned": MODEL, "finish_reason": "stop", "response": deepcopy(message),
             "usage": None if self.unknown_usage else {"prompt_tokens": 20, "prompt_cache_hit_tokens": 0,
@@ -258,6 +261,7 @@ def test_effective_case_schema_must_match_frozen_content_before_dispatch(experim
         manifest["cases"][0].update(json_ref(base, "case.json", experiment["case"]))
         reference = json.loads((base / manifest["references"][0]["path"]).read_text())
         reference["case_sha256"] = manifest["cases"][0]["sha256"]
+        reference["visible_case_sha256"] = hashlib.sha256((json.dumps(raw_case_input(experiment["case"]), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()).hexdigest()
         manifest["references"][0].update(json_ref(base, "reference.json", reference))
     write_json(experiment["path"], manifest)
     # File hashes and the schema version alone cannot bind the rules executed.
@@ -297,6 +301,7 @@ def test_b0_projection_must_preserve_frozen_custom_template_before_dispatch(expe
     manifest["cases"][0].update(json_ref(base, "case.json", experiment["case"]))
     reference = json.loads((base / manifest["references"][0]["path"]).read_text())
     reference["case_sha256"] = manifest["cases"][0]["sha256"]
+    reference["visible_case_sha256"] = hashlib.sha256((json.dumps(raw_case_input(experiment["case"]), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()).hexdigest()
     manifest["references"][0].update(json_ref(base, "reference.json", reference))
     write_json(experiment["path"], manifest)
     frozen = validate_manifest(experiment["path"])
@@ -519,7 +524,7 @@ def test_expired_pricing_does_not_prevent_read_only_recovery_of_committed_result
 def test_interrupted_dispatch_is_already_indexed_before_recovery_and_never_repeated(experiment):
     factories, calls = [], []
     class InterruptedModel(OfflineModel):
-        def complete(self, messages, tools=None):
+        def complete(self, messages, tools=None, stage=None):
             calls.append(self.method)
             raise KeyboardInterrupt("simulated loss after request may have been sent")
     def factory(plan, method):
@@ -551,8 +556,8 @@ def test_manifest_changed_in_running_process_cannot_dispatch_under_original_bind
         write_json(experiment["path"], experiment["manifest"])
         assert validate_manifest(experiment["path"])["frozen_valid"]
     class ChangingModel(OfflineModel):
-        def complete(self, messages, tools=None):
-            result = super().complete(messages, tools)
+        def complete(self, messages, tools=None, stage=None):
+            result = super().complete(messages, tools, stage=stage)
             change_manifest()
             return result
     def factory(plan, method):
@@ -650,7 +655,7 @@ def test_known_not_sent_budget_blocks_recover_normally_without_new_dispatch_or_u
 def test_repeated_interrupted_recovery_preserves_reservation_and_rejects_deleted_call_history(experiment, interrupted_method):
     factories, calls = [], []
     class InterruptedModel(OfflineModel):
-        def complete(self, messages, tools=None):
+        def complete(self, messages, tools=None, stage=None):
             calls.append(self.method)
             raise KeyboardInterrupt("possibly sent; no durable provider response")
     def factory(plan, method):

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from aml_qc.core import check_coverage, check_materials, compute_features, query_transactions, resolve_entity, verify_claim
+from aml_qc.depgraph import Evaluator, sources_for
 from aml_qc.ingest import load_case
 
 DATA = Path(__file__).resolve().parents[1] / 'data' / 'synthetic'
@@ -231,3 +232,106 @@ def test_query_rejects_reversed_interval():
     case = sample()
     with pytest.raises(ValueError, match='非空半开区间'):
         query_transactions(case, {'start': case['coverage_end'], 'end': case['coverage_start']})
+
+
+def test_transaction_id_query_returns_exact_record_and_bound_scope():
+    case = sample()
+    row = next(r for r in case['transactions'] if r['direction'] == 'out')
+    result = query_transactions(case, {'transaction_id': row['transaction_id']})
+    assert result['rows'] == [row]
+    assert result['transaction_ids'] == [row['transaction_id']]
+    assert result['metrics']['count'] == 1
+    assert result['scope']['transaction_id'] == row['transaction_id']
+    assert result['scope']['account_id'] == case['subject_account_id']
+    assert result['scope']['start'] == case['coverage_start']
+    assert result['scope']['end'] == case['coverage_end']
+    assert 'transaction_id' not in query_transactions(case)['scope']
+
+
+def test_missing_transaction_id_keeps_exact_empty_scope_and_distinct_fingerprint():
+    first = query_transactions(sample(), {'transaction_id': 'missing-first'})
+    second = query_transactions(sample(), {'transaction_id': 'missing-second'})
+    for result in (first, second):
+        assert result['rows'] == result['transaction_ids'] == []
+        assert result['execution_status'] == 'completed'
+        assert result['metrics']['count'] == 0 and result['coverage']['status'] == 'full'
+    assert first['scope']['transaction_id'] == 'missing-first'
+    assert second['scope']['transaction_id'] == 'missing-second'
+    assert first['query_id'] != second['query_id']
+
+
+def test_transaction_id_lookup_exposes_actual_counterparty_and_intersects_filter():
+    case = sample()
+    row = next(r for r in case['transactions'] if r['direction'] == 'out')
+    row['counterparty_token'] = 'payer-00'
+    actual = query_transactions(case, {'transaction_id': row['transaction_id']})
+    assert actual['rows'] == [row] and actual['metrics']['counterparty_tokens'] == ['payer-00']
+    filtered = query_transactions(case, {'transaction_id': row['transaction_id'], 'counterparty_token': 'supplier-b'})
+    assert filtered['rows'] == [] and filtered['metrics']['count'] == 0
+    assert filtered['scope']['transaction_id'] == row['transaction_id']
+    assert filtered['scope']['counterparty_token'] == 'supplier-b'
+    assert actual['query_id'] != filtered['query_id']
+
+
+@pytest.mark.parametrize('direction, expected_count', [('out', 1), ('in', 0)])
+def test_transaction_id_does_not_override_direction(direction, expected_count):
+    case = sample()
+    row = next(r for r in case['transactions'] if r['direction'] == 'out')
+    result = query_transactions(case, {'transaction_id': row['transaction_id'], 'direction': direction})
+    assert result['metrics']['count'] == expected_count
+    assert result['scope']['direction'] == direction
+
+
+@pytest.mark.parametrize('window', [
+    {'start': '2026-09-02T00:00:00+08:00'},
+    {'end': '2026-09-01T15:00:00+08:00'},
+])
+def test_transaction_id_does_not_expand_requested_half_open_window(window):
+    case = sample()
+    result = query_transactions(case, {'transaction_id': 'seed-02-out-00', **window})
+    assert result['rows'] == [] and result['metrics']['count'] == 0
+    assert all(result['scope'][key] == value for key, value in window.items())
+
+
+def test_transaction_id_does_not_expand_case_account_or_default_period():
+    case = sample()
+    row = next(r for r in case['transactions'] if r['direction'] == 'out')
+    with pytest.raises(ValueError, match='本案账户'):
+        query_transactions(case, {'transaction_id': row['transaction_id'], 'account_id': 'another-account'})
+    row['timestamp'] = case['coverage_end']
+    assert query_transactions(case, {'transaction_id': row['transaction_id']})['rows'] == []
+    row['timestamp'] = case['coverage_start']
+    row['account_id'] = 'another-account'
+    assert query_transactions(case, {'transaction_id': row['transaction_id']})['rows'] == []
+
+
+@pytest.mark.parametrize('transaction_id', [None, '', '  ', 1, True, [], {}])
+def test_transaction_id_requires_nonempty_string(transaction_id):
+    with pytest.raises(ValueError, match='transaction_id'):
+        query_transactions(sample(), {'transaction_id': transaction_id})
+
+
+def test_transaction_id_deleted_record_incremental_matches_independent_full_empty_result():
+    case = sample()
+    transaction_id = next(r['transaction_id'] for r in case['transactions'] if r['direction'] == 'out')
+    query = {'transaction_id': transaction_id}
+    dependencies = ['source:metadata', 'source:transactions', 'source:coverage', 'source:entities', 'source:execution']
+    original = Evaluator(sources_for(case, {}, {'fixture': 'exact-transaction-query'}))
+    before = original.evaluate('lookup', 'query_transactions', query, dependencies,
+                               lambda: query_transactions(case, query))
+    old_snapshot = deepcopy(original.snapshot())
+    changed = deepcopy(case)
+    changed['transactions'] = [r for r in changed['transactions'] if r['transaction_id'] != transaction_id]
+    results = []
+    for strategy in ('incremental', 'full'):
+        evaluator = Evaluator(sources_for(changed, {}, {'fixture': 'exact-transaction-query'}),
+                              old_snapshot if strategy == 'incremental' else None, strategy)
+        result = evaluator.evaluate('lookup', 'query_transactions', query, dependencies,
+                                    lambda: query_transactions(changed, query))
+        assert evaluator.reused == 0 and evaluator.recomputed == 1
+        assert result['rows'] == [] and result['metrics']['count'] == 0
+        assert result['scope']['transaction_id'] == transaction_id
+        assert result['scope']['transaction_set_hash'] != before['scope']['transaction_set_hash']
+        results.append(result)
+    assert results[0] == results[1]
+    assert original.snapshot() == old_snapshot

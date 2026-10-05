@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from aml_qc.depgraph import digest, sources_for
+from aml_qc.baseline import raw_case_input
+from aml_qc.llm import GENERATION
 from scripts.score_evaluation import call_cost, score_evaluation
 from scripts.validate_evaluation import EXPOSURES, validate_manifest
 
@@ -37,9 +39,11 @@ def declaration(**extra):
 def experiment(tmp_path):
     case = {'case_id': 'fixture', 'subject_account_id': 'a', 'coverage_start': '2026-09-01T00:00:00+08:00',
         'coverage_end': '2026-09-02T00:00:00+08:00', 'documents': [
-            {'document_id': 'narrative', 'revision': '1', 'text': '向甲一笔；向乙两笔'}],
+            {'document_id': 'narrative', 'revision': '1', 'source': 'synthetic', 'text': '向甲一笔；向乙两笔'}],
         'transactions': [], 'materials': [], 'material_links': [], 'coverage': [],
-        'review_scope': {'target_labels': ['count']}}
+        'review_scope': {'target_labels': ['count']},
+        'task_mode': 'annotation_only', 'data_version': '1', 'schema_version': 'S1.0',
+        'currency': 'CNY', 'timezone': 'Asia/Shanghai', 'counterparties': [], 'entity_mappings': []}
     schema = {'labels': {'count': {'allowed_values': ['supported', 'contradicted', 'insufficient_evidence']}}}
     people = [dict(person_id='fictional-' + p, signed_at=STAMP, exposure=dict.fromkeys(EXPOSURES, False)) for p in ('A', 'B')]
     units = [dict(reference_check_id='claim-' + str(n), label='count', object_scope={'account_id': 'a'},
@@ -47,7 +51,7 @@ def experiment(tmp_path):
         reason='Hand-written expected label for scoring mechanics only.', evidence_sets=[[EVIDENCE]],
         issue_expectations=[{'type': 'claim_error', 'truth': 'negative'}]) for n in (1, 2)]
     runner = source(tmp_path, 'aml_qc/workflow.py')
-    method = {'model': 'fixture-model', 'generation': {'temperature': 0, 'thinking': 'disabled', 'max_output_tokens': 4096},
+    method = {'model': 'fixture-model', 'generation': deepcopy(GENERATION),
         'runner': runner, 'budget': {'max_calls': 6, 'max_output_tokens': 4096, 'total_token_budget': 40000, 'currency_limit': '1'}}
     pricing = {'currency': 'CNY', 'effective_at': STAMP, 'source_url': 'https://example.invalid/fixture',
         'unit_tokens': 1000, 'rates': {'input_cache_hit': '0.1', 'input_cache_miss': '1', 'output': '2'}}
@@ -92,6 +96,7 @@ def run(experiment, *, ledger=True, corrupt=None):
     manifest['cases'] = [dict(case_id='fixture', family_id='fixture-family', split='test',
                              required_check_ids=[u['reference_check_id'] for u in e['reference']['check_units']], **cref)]
     e['reference']['case_sha256'] = cref['sha256']
+    e['reference']['visible_case_sha256'] = hashlib.sha256((json.dumps(raw_case_input(e['case']), ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + '\n').encode()).hexdigest()
     rref = write(root, 'reference.json', e['reference'])
     manifest['references'] = [dict(case_id='fixture', **rref)]
     units = e['reference']['check_units']

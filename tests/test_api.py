@@ -12,6 +12,7 @@ import pytest
 from aml_qc import llm
 from aml_qc.ingest import load_case
 from aml_qc.workflow import run_review as local_review
+from test_store import review_binding
 
 # api exposes a default ASGI app at import time. Keep that initialization away
 # from the real workspace database and credentials, too; fixtures use tmp_path.
@@ -24,6 +25,13 @@ with TemporaryDirectory() as import_dir:
 DATA = Path(__file__).resolve().parents[1] / 'data' / 'synthetic'
 
 
+@pytest.fixture(autouse=True)
+def no_paid_transport(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail('HTTP contract tests must never call a paid provider')
+    monkeypatch.setattr(llm.httpx, 'post', forbidden)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     # Guard even accidental test changes from invoking an external model.
@@ -31,6 +39,7 @@ def client(tmp_path, monkeypatch):
         assert kwargs.get('provider', 'local') == 'local', '测试不得调用付费模型'
         return local_review(package, **kwargs)
     monkeypatch.setattr(api, 'run_review', guarded_run)
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': '', 'DEEPSEEK_MODEL': 'mock-model'})
     app = api.create_app(tmp_path / 'api-test.sqlite3', seed=False)
     with TestClient(app) as session:
         yield session
@@ -55,8 +64,9 @@ def run(client, cid, **kwargs):
 
 
 def review(client, cid, action, target_id, resolution=None):
+    binding = review_binding(client.get(f'/api/cases/{cid}').json(), target_id)
     response = client.post(f'/api/cases/{cid}/reviews', json={'action':action,'target_id':target_id,
-        'reason':'测试人工复核：核对当前范围和证据','actor':'test-reviewer','resolution':resolution})
+        'reason':'测试人工复核：核对当前范围和证据','actor':'test-reviewer','resolution':resolution, **binding})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -96,7 +106,8 @@ def test_http_import_run_review_export_and_assets(client):
     state = run(client,cid)
     assert state['latest_run']['run_status'] == 'partial'
     assert state['latest_run']['agent_verified'] is False
-    denied = client.post(f'/api/cases/{cid}/reviews',json={'action':'confirm','target_id':'task','reason':'尚未关闭未决项'})
+    denied = client.post(f'/api/cases/{cid}/reviews',json={'action':'confirm','target_id':'task','reason':'尚未关闭未决项',
+        **review_binding(state, 'task')})
     assert denied.status_code == 409
     assert close_manual(client,cid)['can_pass']
     confirmed = review(client,cid,'confirm','task')
@@ -128,25 +139,89 @@ def test_source_mutation_revokes_current_pass_and_requires_new_confirmation(clie
     assert review(client,cid,'reconfirm','task')['review_status'] == '本次质检范围内通过'
 
 
-def test_failed_paid_run_replaces_old_pass_and_does_not_expose_exception_content(client, monkeypatch):
-    state = passed(client); cid = state['package']['case_id']
+def test_failed_paid_run_replaces_old_pass_and_does_not_expose_exception_content(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': 'FAKE_NOT_LIVE', 'DEEPSEEK_MODEL': 'mock-model'})
     calls=[]
-    def failed_model(package, **kwargs):
-        calls.append(kwargs)
+    def failed_runner(package, **kwargs):
+        calls.append((deepcopy(package), deepcopy(kwargs)))
         raise RuntimeError('SENSITIVE_FAKE_PROVIDER_RESPONSE_MUST_NOT_APPEAR')
-    monkeypatch.setattr(api,'run_review',failed_model)
-    response = client.post(f'/api/cases/{cid}/run',json={'mode':'agent','provider':'deepseek','strategy':'incremental'})
-    assert response.status_code == 200
-    failed = response.json()
-    assert calls[0]['provider'] == 'deepseek' and calls[0]['mode'] == 'agent'
-    assert failed['latest_run']['run_status'] == 'failed'
-    assert failed['latest_run']['run_id'] != state['latest_run']['run_id']
-    assert not failed['can_pass']
-    assert 'SENSITIVE_FAKE' not in response.text
-    assert not client.get(f'/api/cases/{cid}/export').json()['deliverable']['passed']
-    # The execution lock must also be released after an exception.
-    monkeypatch.setattr(api,'run_review',lambda package, **kwargs: local_review(package,provider='local'))
-    assert run(client,cid)['latest_run']['run_status'] == 'partial'
+    with TestClient(api.create_app(tmp_path / 'paid-failure.sqlite3', seed=False, paid_runner=failed_runner)) as client:
+        state = passed(client); cid = state['package']['case_id']
+        response = client.post(f'/api/cases/{cid}/run',json={'mode':'agent','provider':'deepseek','strategy':'incremental'})
+        assert response.status_code == 200
+        failed = response.json()
+        assert calls == [(state['package'], {'mode': 'agent', 'strategy': 'incremental', 'previous': state['latest_run']['snapshot']})]
+        assert failed['latest_run']['run_status'] == 'failed'
+        assert failed['latest_run']['run_id'] != state['latest_run']['run_id']
+        assert not failed['can_pass']
+        assert 'SENSITIVE_FAKE' not in response.text
+        assert not client.get(f'/api/cases/{cid}/export').json()['deliverable']['passed']
+        # The execution lock must also be released after an exception.
+        assert run(client,cid)['latest_run']['run_status'] == 'partial'
+
+
+@pytest.mark.parametrize('mode', ['fixed', 'agent'])
+def test_configured_key_without_budget_runner_never_dispatches_or_saves(client, monkeypatch, mode):
+    state = passed(client); cid = state['package']['case_id']
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': 'FAKE_NOT_LIVE', 'DEEPSEEK_MODEL': 'mock-model'})
+    calls = []
+    def forbidden_fallback(*args, **kwargs):
+        calls.append(kwargs)
+        raise AssertionError('Unbudgeted DeepSeek fallback must not dispatch')
+    monkeypatch.setattr(api, 'run_review', forbidden_fallback)
+    response = client.post(f'/api/cases/{cid}/run', json={'provider': 'deepseek', 'mode': mode})
+    assert response.status_code == 409
+    assert calls == []
+    config = client.get('/api/config').json()
+    assert config['deepseek_configured'] and not config['deepseek_governed_ready']
+    assert config['deepseek_disabled_reason']
+    current = client.get(f'/api/cases/{cid}').json()
+    assert current['latest_run'] == state['latest_run']
+    assert current['review_events'] == state['review_events']
+    assert client.get(f'/api/cases/{cid}/export').json()['deliverable']['passed']
+
+
+@pytest.mark.parametrize('mode,strategy', [('fixed', 'full'), ('agent', 'incremental')])
+def test_paid_entry_only_uses_injected_runner_with_current_context(tmp_path, monkeypatch, mode, strategy):
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': 'FAKE_NOT_LIVE', 'DEEPSEEK_MODEL': 'mock-model'})
+    calls = []
+    results = []
+    def paid_runner(package, **kwargs):
+        calls.append((deepcopy(package), deepcopy(kwargs)))
+        result = local_review(package, provider='local')
+        results.append(result)
+        return result
+    with TestClient(api.create_app(tmp_path / 'paid-entry.sqlite3', seed=False, paid_runner=paid_runner)) as client:
+        state = imported(client); cid = state['package']['case_id']
+        state = run(client, cid)
+        def forbidden_fallback(*args, **kwargs):
+            pytest.fail('Paid entry must not fall back to an unbudgeted executor')
+        monkeypatch.setattr(api, 'run_review', forbidden_fallback)
+        config = client.get('/api/config').json()
+        assert config['deepseek_configured'] and config['deepseek_governed_ready']
+        assert config['deepseek_disabled_reason'] is None
+        response = client.post(f'/api/cases/{cid}/run', json={'provider': 'deepseek', 'mode': mode, 'strategy': strategy})
+        assert response.status_code == 200, response.text
+        expected_previous = state['latest_run']['snapshot'] if strategy == 'incremental' else None
+        assert calls == [(state['package'], {'mode': mode, 'strategy': strategy, 'previous': expected_previous})]
+        assert response.json()['latest_run']['snapshot'] == results[0]['snapshot']
+
+
+def test_injected_paid_runner_without_key_cannot_dispatch(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': '', 'DEEPSEEK_MODEL': 'mock-model'})
+    calls = []
+    def paid_runner(*args, **kwargs):
+        calls.append(kwargs)
+        pytest.fail('A missing API key must disable paid dispatch')
+    with TestClient(api.create_app(tmp_path / 'paid-no-key.sqlite3', seed=False, paid_runner=paid_runner)) as client:
+        state = imported(client); cid = state['package']['case_id']
+        config = client.get('/api/config').json()
+        assert not config['deepseek_configured'] and not config['deepseek_governed_ready']
+        assert config['deepseek_disabled_reason']
+        assert client.post(f'/api/cases/{cid}/run', json={'provider': 'deepseek'}).status_code == 409
+        assert calls == []
+        assert client.get(f'/api/cases/{cid}').json()['latest_run'] is None
+        assert run(client, cid)['latest_run']['run_status'] == 'partial'
 
 
 def test_source_changed_during_run_does_not_install_outdated_snapshot(client, monkeypatch):
@@ -165,7 +240,7 @@ def test_source_changed_during_run_does_not_install_outdated_snapshot(client, mo
     assert not client.get(f'/api/cases/{cid}/export').json()['deliverable']['passed']
 
 
-def test_concurrent_execution_rejected_without_second_model_call(client, monkeypatch):
+def test_concurrent_execution_rejected_without_second_execution(client, monkeypatch):
     state = imported(client); cid = state['package']['case_id']
     started, release = Event(), Event(); calls=[]
     def blocked_run(package, **kwargs):
@@ -174,10 +249,10 @@ def test_concurrent_execution_rejected_without_second_model_call(client, monkeyp
         return local_review(package,provider='local')
     monkeypatch.setattr(api,'run_review',blocked_run)
     with ThreadPoolExecutor(max_workers=1) as pool:
-        first = pool.submit(client.post,f'/api/cases/{cid}/run',json={'provider':'deepseek'})
+        first = pool.submit(client.post,f'/api/cases/{cid}/run',json={'provider':'local'})
         assert started.wait(5)
         try:
-            second = client.post(f'/api/cases/{cid}/run',json={'provider':'deepseek'})
+            second = client.post(f'/api/cases/{cid}/run',json={'provider':'local'})
             assert second.status_code == 409
             assert len(calls) == 1
         finally:
@@ -225,6 +300,8 @@ def test_config_exposes_only_key_presence_not_key_material(client, monkeypatch):
     assert response.status_code == 200
     assert response.json()['deepseek_configured'] is True
     assert response.json()['model'] == 'mock-model'
+    assert response.json()['max_output_tokens_per_call'] == llm.GENERATION['max_output_tokens']
+    assert response.json()['stage_max_output_tokens'] == llm.GENERATION['stage_max_output_tokens']
     assert 'FAKE_SECRET' not in response.text
 
 
@@ -244,6 +321,21 @@ def test_annotation_http_contract_requires_snapshot_cas_and_rejects_client_old_v
     conflict=client.post(f'/api/cases/{cid}/reviews',json=payload)
     assert conflict.status_code==409
     assert not client.get(f'/api/cases/{cid}/export').json()['deliverable']['annotations']
+
+
+@pytest.mark.parametrize('target', ['task', 'issue'])
+def test_task_issue_http_review_requires_anchors_and_rejects_old_page(client, target):
+    state = imported(client, 2); cid = state['package']['case_id']; state = run(client, cid)
+    target_id = 'task' if target == 'task' else next(i['issue_id'] for i in state['latest_run']['issues'] if i['type'] == 'claim_error')
+    payload = {'action': 'dispute', 'target_id': target_id, 'reason': '当前快照的争议记录', **review_binding(state, target_id)}
+    for key in ['snapshot_id', 'expected_event_id']:
+        incomplete = dict(payload); del incomplete[key]
+        assert client.post(f'/api/cases/{cid}/reviews', json=incomplete).status_code == 422
+    assert client.post(f'/api/cases/{cid}/reviews', json={**payload, 'snapshot_id': 'old-snapshot'}).status_code == 409
+    first = client.post(f'/api/cases/{cid}/reviews', json=payload)
+    assert first.status_code == 200, first.text
+    assert client.post(f'/api/cases/{cid}/reviews', json=payload).status_code == 409
+    assert client.get(f'/api/cases/{cid}').json()['review_events'] == first.json()['review_events']
 
 
 def test_claim_http_revision_is_recorded_pending_without_replacing_original_fact(client):
@@ -289,3 +381,22 @@ def test_migration_http_preview_commit_refuses_forged_target_and_does_not_run_mo
     assert client.post(url,json=apply).status_code==409
     exported=client.get(f'/api/cases/{cid}/export').json()
     assert not exported['deliverable']['passed'] and len(exported['schema_migrations']['receipts'])==1
+
+
+def test_budget_preflight_failure_disables_paid_entry_before_saving_a_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, 'settings', lambda: {'DEEPSEEK_API_KEY': 'FAKE_NOT_LIVE', 'DEEPSEEK_MODEL': 'mock-model'})
+    class StoppedRunner:
+        def preflight(self):
+            raise RuntimeError('SENSITIVE_FAKE_CONFIGURATION')
+        def __call__(self, *args, **kwargs):
+            pytest.fail('Stopped budget must not dispatch')
+    with TestClient(api.create_app(tmp_path / 'stopped-budget.sqlite3', seed=False, paid_runner=StoppedRunner())) as client:
+        state = imported(client)
+        config = client.get('/api/config').json()
+        assert not config['deepseek_governed_ready']
+        response = client.post(f"/api/cases/{state['package']['case_id']}/run",
+                               json={'mode': 'agent', 'provider': 'deepseek', 'strategy': 'full'})
+        assert response.status_code == 409
+        assert 'SENSITIVE_FAKE' not in response.text
+        current = client.get(f"/api/cases/{state['package']['case_id']}").json()
+        assert current['latest_run'] is None

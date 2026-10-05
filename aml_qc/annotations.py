@@ -202,6 +202,8 @@ def _current_structured_reference(package, ref):
                            'material_links': package.get('material_links', [])}
         scope = ref['scope']
         query = {k: scope[k] for k in ('start', 'end', 'account_id', 'direction', 'counterparty_ref')}
+        if 'transaction_id' in scope:
+            query['transaction_id'] = scope['transaction_id']
         query['fields'] = ref['coverage']['fields']
         if sorted(query['fields']) != scope['fields']:
             return False

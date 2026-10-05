@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from test_store import bound_review
+
 from aml_qc import llm
 from aml_qc.depgraph import business_result, digest
 from aml_qc.ingest import load_case
@@ -355,7 +357,9 @@ def lead_fixture(package):
     for focus in response['focuses']:
         if focus['focus_id'] in upgraded:
             focus.update(status='not_addressed', quote='', reason='机制夹具未回应人工升级范围')
-    return ScriptedModel([json_message({'claims': [], 'unresolved': []}), json_message(response)])
+    return ScriptedModel([json_message({'claims': [], 'unresolved': []}),
+        json_message({'focuses': response['focuses']}),
+        json_message({'gaps': response['gaps'], 'leads': response['leads']})])
 
 
 @pytest.mark.parametrize('action', ['upgrade_lead', 'close_lead'])
@@ -378,7 +382,7 @@ def test_lead_scope_only_change_has_independent_human_impact_and_current_candida
         prior = execute(act(prior, 'upgrade_lead'))
     prior = confirm_produced(store, prior)
     if prior['can_pass']:
-        prior = store.review(package['case_id'], action='confirm', target_id='task', reason='机制范围已逐标签确认')
+        prior = bound_review(store, package['case_id'], action='confirm', target_id='task', reason='机制范围已逐标签确认')
     changed = act(prior, action)
     impact = impact_sets(prior, changed, {'alert_response'})
     for key in ('documents', 'transactions', 'materials', 'material_links', 'alert'):
@@ -416,7 +420,7 @@ def test_actual_failed_recheck_preserves_human_impact_and_never_exports_old_pass
     old_run = run_review(initial['package'], provider='frozen', model=recorder)
     prior = confirm_produced(store, store.save_run(package['case_id'], initial['source_hash'], old_run))
     assert prior['can_pass']
-    prior = store.review(package['case_id'], action='confirm', target_id='task', reason='机制测试旧快照已人工通过')
+    prior = bound_review(store, package['case_id'], action='confirm', target_id='task', reason='机制测试旧快照已人工通过')
     assert store.export(package['case_id'])['deliverable']['passed']
     updated = deepcopy(prior['package'])
     next(d for d in updated['documents'] if d['document_id'] == 'kyc')['text'] += ' 新经营说明导致旧语义请求失效。'
@@ -434,9 +438,9 @@ def test_actual_failed_recheck_preserves_human_impact_and_never_exports_old_pass
     assert not exported['deliverable']['passed'] and exported['deliverable']['annotations'] == []
     failure = next(i for i in current['latest_run']['issues'] if i['type'] == 'execution_failed')
     with pytest.raises(ValueError):
-        store.review(package['case_id'], action='reject', target_id=failure['issue_id'], reason='不能驳回执行失败绕过门禁')
+        bound_review(store, package['case_id'], action='reject', target_id=failure['issue_id'], reason='不能驳回执行失败绕过门禁')
     with pytest.raises(ValueError):
-        store.review(package['case_id'], action='confirm', target_id='task', reason='不能沿用旧通过')
+        bound_review(store, package['case_id'], action='confirm', target_id='task', reason='不能沿用旧通过')
     record_property('mechanism', json.dumps({'case': 'failed_recheck_blocks_old_export',
         'provider': 'frozen_exact_request_miss', **impact,
         'incremental_stats': inc['stats'], 'independent_full_stats': full['stats']}, ensure_ascii=False))

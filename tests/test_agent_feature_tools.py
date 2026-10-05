@@ -7,7 +7,7 @@ import pytest
 from aml_qc import llm, workflow
 from aml_qc.depgraph import Evaluator, business_result, digest, sources_for
 from aml_qc.llm import FrozenModel
-from test_model_safety import MODEL, ScriptedModel, case, json_message, semantic_response, tool_message
+from test_model_safety import MODEL, ScriptedModel, case, json_message, response_message, semantic_response, tool_message
 
 
 @pytest.fixture(autouse=True)
@@ -89,8 +89,8 @@ def model_with_reads(value, *, basis_tool='compute_features'):
     args={'feature_code':'F2'} if basis_tool=='compute_features' else {}
     response['leads']=[{'observation':'机制夹具观察，业务意义未验证。','question':'是否需要另行核查这一观察？',
                        'basis_refs':['tool:'+basis_tool+':'+digest(args)[:20]]}]
-    return ScriptedModel([json_message({'claims':[],'unresolved':[]}),
-        tool_message('read_schema',{},'schema-read'),tool_message('compute_features',{'feature_code':'F2'},'feature-read'),{'role':'assistant','content':'取证结束。'},json_message(response)])
+    return ScriptedModel([json_message({'claims':[],'unresolved':[]}),response_message(value),
+        tool_message('read_schema',{},'schema-read'),tool_message('compute_features',{'feature_code':'F2'},'feature-read'),{'role':'assistant','content':'取证结束。'},json_message({'gaps':response['gaps'],'leads':response['leads']})])
 
 
 def test_schema_read_is_not_case_evidence_but_feature_read_can_bind_a_candidate():
@@ -125,7 +125,7 @@ def test_changed_schema_reruns_agent_reads_and_matches_independent_full():
     inc=workflow.run_review(new,provider='frozen',mode='agent',strategy='incremental',previous=snapshot,model=FrozenModel(products,MODEL))
     full=workflow.run_review(new,provider='frozen',mode='agent',model=FrozenModel(products,MODEL))
     assert business_result(inc)==business_result(full) and full['stats']['reused']==0
-    assert inc['stats']['model_calls']==5 and inc['stats']['replayed_tool_calls']==0
+    assert inc['stats']['model_calls']==6 and inc['stats']['replayed_tool_calls']==0
     assert before['snapshot']==snapshot
     feature_read=next(t for t in inc['trace'] if 'round' in t and t['tool']=='compute_features')
     assert feature_read['result']['features'][0]['result']=='not_met'

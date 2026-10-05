@@ -129,10 +129,81 @@ def verify_call_configuration(calls, method):
             raise ValueError('returned_model_not_frozen')
         request = call.get('request')
         if request is None:
+            if 'stage' in call or call.get('dispatch_status') == 'sent':
+                raise ValueError('recorded_request_missing')
             continue
         if not isinstance(request, dict) or request.get('model') != method['model']:
             raise ValueError('recorded_request_model_mismatch')
+        if call.get('dispatch_status') == 'sent' and call.get('request_hash') is None:
+            raise ValueError('recorded_request_hash_missing')
+        if 'request_hash' in call and call['request_hash'] != digest(request):
+            raise ValueError('recorded_request_hash_mismatch')
+        generation = method['generation']
+        stage = call.get('stage')
+        if 'stage_max_output_tokens' in generation and stage is None:
+            caps, thinking = generation['stage_max_output_tokens'], generation['stage_thinking']
+            candidates = [name for name, cap in caps.items()
+                          if request.get('max_tokens') == cap
+                          and request.get('thinking') == {'type': thinking[name]}
+                          and (name == 'tool_review') == bool(request.get('tools'))]
+            if len(candidates) != 1:
+                raise ValueError('recorded_request_stage_ambiguous')
+            stage = candidates[0]
+        current_wire = 'stage' in call or 'stage_max_output_tokens' in method['generation']
+        if 'provider_request_hash' in call:
+            hashes = {row.get('request_hash') for row in call.get('provider_records', []) if isinstance(row, dict)}
+            if len(hashes) != 1 or call['provider_request_hash'] not in hashes or None in hashes:
+                raise ValueError('recorded_provider_request_hash_mismatch')
+        for provider in call.get('provider_records', []) if current_wire else []:
+            if not isinstance(provider, dict) or 'provider_records' in provider:
+                raise ValueError('recorded_provider_invalid')
+            actual = provider.get('request')
+            if provider.get('status') == 'frozen' and isinstance(actual, dict) and 'max_tokens' not in actual:
+                # FrozenModel uses an exact logical key for mechanism replay.
+                logical = {'model': request['model'], 'messages': request['messages'], 'tools': request.get('tools')}
+                if 'stage' in actual:
+                    logical['stage'] = stage
+                if actual != logical or provider.get('request_hash') != digest(logical):
+                    raise ValueError('recorded_provider_request_mismatch')
+                if (provider.get('stage', stage) != stage
+                        or provider.get('generation', generation) != generation):
+                    raise ValueError('recorded_request_generation_mismatch')
+                continue
+            if actual is None and call.get('dispatch_status') != 'sent' and 'stage' not in provider:
+                continue  # Legacy/local doubles do not claim a provider wire.
+            if actual != request:
+                raise ValueError('recorded_provider_request_mismatch')
+            verify_call_configuration([provider], method)
+        if 'stage_max_output_tokens' in generation:
+            caps, thinking = generation['stage_max_output_tokens'], generation['stage_thinking']
+            if (not isinstance(stage, str) or stage not in caps
+                    or (stage == 'tool_review') != bool(request.get('tools'))
+                    or request.get('max_tokens') != caps[stage]
+                    or request.get('thinking') != {'type': thinking[stage]}):
+                raise ValueError('recorded_request_generation_mismatch')
+            if thinking[stage] == 'enabled':
+                if request.get('reasoning_effort') != generation['reasoning_effort'] or 'temperature' in request:
+                    raise ValueError('recorded_request_generation_mismatch')
+            elif request.get('temperature') != generation['temperature'] or 'reasoning_effort' in request:
+                raise ValueError('recorded_request_generation_mismatch')
+            if call.get('generation', generation) != generation:
+                raise ValueError('recorded_request_generation_mismatch')
+            if generation.get('final_transport') == 'sse-with-usage-1':
+                if stage == 'final':
+                    options = request.get('stream_options')
+                    if (request.get('stream') is not True or not isinstance(options, dict)
+                            or set(options) != {'include_usage'} or options['include_usage'] is not True):
+                        raise ValueError('recorded_request_transport_mismatch')
+                elif ('stream_options' in request
+                      or request.get('stream') is not None and request.get('stream') is not False):
+                    raise ValueError('recorded_request_transport_mismatch')
+            continue
         for key, expected in method['generation'].items():
+            if key == 'thinking' and isinstance(expected, dict):
+                expected = expected['with_tools' if request.get('tools') else 'without_tools']
+            if (key == 'temperature' and method['generation'].get('temperature_applies_to') == 'non_thinking_only'
+                    and request.get('thinking') == {'type': 'enabled'}):
+                continue
             actual_key = 'max_tokens' if key == 'max_output_tokens' else key
             if actual_key not in request:
                 continue

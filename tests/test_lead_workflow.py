@@ -10,7 +10,7 @@ from aml_qc.ingest import load_case
 from aml_qc.leads import lead_context_hash
 from aml_qc.llm import FrozenModel
 from aml_qc.workflow import run_review
-from test_model_safety import MODEL, ScriptedModel, json_message, semantic_response, tool_message
+from test_model_safety import MODEL, ScriptedModel, json_message, response_message, semantic_response, tool_message
 
 
 SUGGESTION = {"observation": "客户资料只给出了经营类别，具体结算安排仍需人工判断。",
@@ -26,12 +26,12 @@ def lead_case():
 def lead_model(value, suggestion=None, *, mode='fixed', tool=None):
     answer = semantic_response(value)
     answer['leads'] = [deepcopy(SUGGESTION if suggestion is None else suggestion)]
-    responses = [json_message({'claims': [], 'unresolved': []})]
+    responses = [json_message({'claims': [], 'unresolved': []}), response_message(value)]
     if mode == 'agent':
         if tool:
             responses.append(tool)
         responses.append({"role": "assistant", "content": "取证结束。"})
-    responses.append(json_message(answer))
+    responses.append(json_message({'gaps':answer['gaps'],'leads':answer['leads']}))
     return ScriptedModel(responses)
 
 

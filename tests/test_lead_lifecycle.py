@@ -13,7 +13,7 @@ from aml_qc.llm import FrozenModel
 from aml_qc.store import Store
 from aml_qc.workflow import run_review
 from test_model_safety import MODEL, ScriptedModel, json_message, semantic_response
-from test_store import close_manual
+from test_store import bound_review, close_manual
 
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "synthetic"
@@ -46,7 +46,9 @@ def run_leads(store, *, include=True, pending_upgraded=False, strategy="full", p
         for focus in semantic["focuses"]:
             if focus["focus_id"] in upgraded:
                 focus.update(status="not_addressed", quote="", reason="离线机制夹具：理由尚未回应该新增事项")
-    model = ScriptedModel([json_message({"claims": [], "unresolved": []}), json_message(semantic)])
+    model = ScriptedModel([json_message({"claims": [], "unresolved": []}),
+        json_message({"focuses": semantic["focuses"]}),
+        json_message({"gaps": semantic["gaps"], "leads": semantic["leads"]})])
     if strategy == "incremental":
         model = FrozenModel(products, MODEL)
     result = run_review(state["package"], provider="frozen", model=model,
@@ -66,7 +68,7 @@ def act(store, state, action, **kwargs):
 def confirm_task(store):
     state = close_manual(store, "seed-01")
     assert state["can_pass"]
-    return store.review("seed-01", action="confirm", target_id="task", reason="逐项确认当前限定范围")
+    return bound_review(store, "seed-01", action="confirm", target_id="task", reason="逐项确认当前限定范围")
 
 
 def test_actual_workflow_notice_is_nonblocking_and_exported_after_pass(store):

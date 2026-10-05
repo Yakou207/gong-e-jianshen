@@ -7,13 +7,13 @@ import pytest
 from aml_qc.depgraph import digest
 from aml_qc.evaluation_budget import (BudgetError, BudgetLedger, BudgetedModel,
                                       CONTEXT_BOUND, OUTPUT_BOUND, TOKEN_RESERVATION)
-from aml_qc.llm import ModelError
+from aml_qc.llm import GENERATION, ModelError, generation_request
 
 
 PRICING = {"currency": "CNY", "effective_at": "2026-09-10T12:00:00+08:00",
            "source_url": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/", "unit_tokens": 1000000,
            "rates": {"input_cache_hit": "0.04", "input_cache_miss": "2", "output": "8"}}
-BUDGET = {"max_calls": 6, "max_output_tokens": OUTPUT_BOUND, "total_token_budget": TOKEN_RESERVATION * 6,
+BUDGET = {"max_calls": 6, "max_output_tokens": GENERATION["max_output_tokens"], "total_token_budget": TOKEN_RESERVATION * 6,
           "currency_limit": "20"}
 MESSAGES = [{"role": "user", "content": "Synthetic fixture; no real case or API call."}]
 
@@ -55,20 +55,20 @@ def wrapper(base=None, *, total="30", budget=None, sink=None, ledger=None, run_i
 
 
 def test_exact_worst_case_reservation_and_peak_prices():
-    ledger = BudgetLedger("3", PRICING)
-    assert ledger.reservation_amount == Decimal("2.12992")
-    assert TOKEN_RESERVATION == 1052672
+    ledger = BudgetLedger("6", PRICING)
+    assert ledger.reservation_amount == Decimal("5.24288")
+    assert TOKEN_RESERVATION == 1441792
     assert ledger.pricing_hash == digest(PRICING)
     ledger.reserve("run", BUDGET, "call")
-    assert ledger.held == Decimal("2.12992")
-    assert ledger.remaining == Decimal("0.87008")
+    assert ledger.held == Decimal("5.24288")
+    assert ledger.remaining == Decimal("0.75712")
     assert ledger.snapshot()["runs"]["run"]["tokens_held"] == TOKEN_RESERVATION
 
 
 def test_uses_larger_input_rate_even_if_hit_price_is_higher():
     pricing = deepcopy(PRICING)
     pricing["rates"].update(input_cache_hit="3", input_cache_miss="2")
-    assert BudgetLedger("10", pricing).reservation_amount == Decimal("3.178496")
+    assert BudgetLedger("10", pricing).reservation_amount == Decimal("6.291456")
 
 
 def test_persist_reservation_before_dispatch_and_finish_before_release():
@@ -122,7 +122,7 @@ def test_each_invocation_is_counted_despite_identical_hash():
 
 
 def test_global_ledger_covers_multiple_runs_in_flight():
-    ledger = BudgetLedger("4", PRICING)
+    ledger = BudgetLedger("10", PRICING)
     ledger.reserve("other-run", BUDGET, "other-call")
     model, _, events = wrapper(ledger=ledger)
     with pytest.raises(BudgetError, match="experiment_currency"):
@@ -147,7 +147,7 @@ def test_used_tokens_plus_next_reservation_must_fit_run_budget():
 ])
 def test_unknown_usage_is_sticky_and_reservation_remains(bad):
     model, ledger, events = wrapper(FakeModel(receipt=bad))
-    with pytest.raises(BudgetError, match="unresolved"):
+    with pytest.raises(BudgetError, match="^budget_charge_unresolved:incomplete_usage$"):
         model.complete(MESSAGES)
     assert ledger.stopped and ledger.held == ledger.reservation_amount
     assert ledger.spent == 0
@@ -158,15 +158,17 @@ def test_unknown_usage_is_sticky_and_reservation_remains(bad):
     assert model.calls[-1]["dispatch_status"] == "not_sent"
 
 
-@pytest.mark.parametrize("receipt", [usage(output=4097), usage(hit=0, miss=CONTEXT_BOUND, output=1),
+@pytest.mark.parametrize("receipt", [usage(output=OUTPUT_BOUND + 1), usage(hit=0, miss=CONTEXT_BOUND, output=1),
                                      usage(hit=0, miss=CONTEXT_BOUND * 3, output=0)])
 def test_exceeding_documented_bounds_stops_and_records_actual_known_cost(receipt):
     model, ledger, events = wrapper(FakeModel(receipt=receipt))
-    with pytest.raises(BudgetError, match="provider_bound"):
+    with pytest.raises(BudgetError, match="^provider_bound_exceeded$"):
         model.complete(MESSAGES)
     assert ledger.stopped and ledger.held == 0
     assert ledger.spent == Decimal(events[-1]["settlement"]["cost"])
     assert events[-1]["settlement"]["status"] == "overrun"
+    assert model.calls[-1]["status"] == "failed"
+    assert model.calls[-1]["usage"] == receipt
 
 
 def test_provider_failure_with_receipt_is_billed_and_raw_is_retained():
@@ -238,12 +240,12 @@ def test_finish_written_but_fsync_failed_cannot_release_after_restore():
 
 
 def test_observed_overspend_is_not_clipped_to_approved_budget():
-    model, ledger, events = wrapper(FakeModel(receipt=usage(hit=0, miss=10000000, output=0)), total="3")
+    model, ledger, events = wrapper(FakeModel(receipt=usage(hit=0, miss=10000000, output=0)), total="6")
     with pytest.raises(BudgetError, match="provider_bound"):
         model.complete(MESSAGES)
-    assert ledger.spent == Decimal("20") and ledger.remaining == Decimal("-17")
+    assert ledger.spent == Decimal("20") and ledger.remaining == Decimal("-14")
     assert ledger.stopped and ledger.held == 0
-    restored = BudgetLedger("3", PRICING).restore(events)
+    restored = BudgetLedger("6", PRICING).restore(events)
     assert restored.snapshot() == ledger.snapshot()
 
 
@@ -302,12 +304,7 @@ def test_actual_provider_payload_is_preserved_with_its_own_hash(use_tools):
     class PayloadModel(FakeModel):
         def complete(self, messages, tools=None):
             result = super().complete(messages, tools)
-            payload = {"model": self.model, "messages": deepcopy(messages), "max_tokens": 4096,
-                       "temperature": 0, "thinking": {"type": "disabled"}}
-            if tools:
-                payload.update(tools=deepcopy(tools), tool_choice="auto")
-            else:
-                payload["response_format"] = {"type": "json_object"}
+            payload = generation_request(self.model, messages, tools)
             self.calls[-1].update(request=payload, request_hash=digest(payload))
             return result
     model, _, events = wrapper(PayloadModel())
@@ -316,7 +313,7 @@ def test_actual_provider_payload_is_preserved_with_its_own_hash(use_tools):
     provider = model.calls[0]["provider_records"][0]
     assert provider["request"] == model.base.calls[0]["request"]
     assert digest(provider["request"]) == provider["request_hash"]
-    assert provider["request_hash"] != model.calls[0]["request_hash"]
+    assert provider["request_hash"] == model.calls[0]["request_hash"]
     assert events[-1]["record"]["provider_records"][0]["request"] == provider["request"]
     model.base.calls[0]["request"]["messages"][0]["content"] = "changed later"
     assert provider["request"]["messages"] == MESSAGES
@@ -326,16 +323,15 @@ def test_provider_request_projection_drops_transport_and_secret_metadata():
     class ContaminatedRecord(FakeModel):
         def complete(self, messages, tools=None):
             result = super().complete(messages, tools)
-            self.calls[-1]["request"] = {"model": self.model, "messages": deepcopy(messages),
-                "max_tokens": 4096, "temperature": 0, "thinking": {"type": "disabled"},
-                "response_format": {"type": "json_object"}, "headers": {"Authorization": "SECRET-HEADER"},
+            self.calls[-1]["request"] = {**generation_request(self.model, messages, tools),
+                "headers": {"Authorization": "SECRET-HEADER"},
                 "auth": "SECRET-AUTH", "key": "SECRET-KEY", "api_key": "SECRET-API-KEY",
                 "DEEPSEEK_API_KEY": "SECRET-ENV-KEY", "config": self.config}
             return result
     model, _, events = wrapper(ContaminatedRecord())
     model.complete(MESSAGES)
     payload = model.calls[0]["provider_records"][0]["request"]
-    assert set(payload) == {"model", "messages", "max_tokens", "temperature", "thinking", "response_format"}
+    assert set(payload) == set(generation_request(model.model, MESSAGES))
     assert "SECRET" not in repr(events) + repr(model.calls)
 
 
@@ -447,7 +443,7 @@ def test_invalid_global_amount_is_rejected(amount):
         BudgetLedger(amount, PRICING)
 
 
-@pytest.mark.parametrize("field,value", [("max_calls", True), ("max_calls", 0), ("max_output_tokens", 8192),
+@pytest.mark.parametrize("field,value", [("max_calls", True), ("max_calls", 0), ("max_output_tokens", OUTPUT_BOUND + 1),
                                          ("total_token_budget", -1), ("currency_limit", "NaN")])
 def test_invalid_method_budgets_rejected_before_any_provider_call(field, value):
     with pytest.raises(ValueError):

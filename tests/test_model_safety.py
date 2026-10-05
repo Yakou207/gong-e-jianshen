@@ -3,6 +3,7 @@
 No test reads .env or contacts a model service. Scripted/frozen responses are
 mechanism fixtures, never evidence that the live Agent passed acceptance.
 """
+from contextlib import contextmanager
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from aml_qc import llm
+from aml_qc import llm, workflow
 from aml_qc.depgraph import business_result, digest
 from aml_qc.ingest import load_case
 from aml_qc.llm import DeepSeek, FrozenModel, ModelError
@@ -23,6 +24,15 @@ MODEL = 'offline-safety-fixture'
 
 @pytest.fixture(autouse=True)
 def no_credentials_or_network(monkeypatch):
+    @contextmanager
+    def stream(method, *args, **kwargs):
+        assert method == 'POST'
+        response = llm.httpx.post(*args, **kwargs)
+        try:
+            yield response
+        finally:
+            response.close()
+    monkeypatch.setattr(llm.httpx, 'stream', stream)
     monkeypatch.setattr(llm, 'settings', lambda: {
         'DEEPSEEK_API_KEY': 'test-placeholder',
         'DEEPSEEK_BASE_URL': 'https://model.invalid',
@@ -54,6 +64,14 @@ def semantic_response(value):
     }
 
 
+def response_message(value):
+    return json_message({'focuses':semantic_response(value)['focuses']})
+
+
+def support_response(value):
+    return {'gaps':[], 'leads':[]}
+
+
 def tool_message(name='check_coverage', arguments=None, call_id='call-1'):
     return {'role': 'assistant', 'tool_calls': [
         {'id': call_id, 'type': 'function', 'function': {
@@ -71,9 +89,11 @@ class ScriptedModel:
         self.calls = []
         self.request_products = {}
 
-    def complete(self, messages, tools=None):
+    def complete(self, messages, tools=None, stage=None):
         assert self.responses, 'Unexpected extra model request'
         request = deepcopy({'model': self.model, 'messages': messages, 'tools': tools})
+        if stage is not None:
+            request['stage'] = stage
         key = digest(request)
         response = self.responses.pop(0)
         if key in self.request_products:
@@ -86,12 +106,12 @@ class ScriptedModel:
 
 def script(value, extraction=None, tools=None):
     responses = [json_message(extraction if extraction is not None else
-                              {'claims': [], 'unresolved': []})]
+                              {'claims': [], 'unresolved': []}), response_message(value)]
     if tools is not None:
         responses.extend(tools)
         if len(tools) < 3:
             responses.append({"role": "assistant", "content": "取证结束，等待最终输出。"})
-    responses.append(json_message(semantic_response(value)))
+    responses.append(json_message(support_response(value)))
     return ScriptedModel(responses)
 
 
@@ -207,7 +227,7 @@ def test_final_semantic_failure_keeps_actual_tool_attempts_and_usage():
     model.responses[-1] = json_message({'focuses': ['invalid final output'], 'gaps': []})
     result = run_review(value, provider='frozen', mode='agent', model=model)
     assert result['run_status'] == 'partial'
-    assert result['stats']['model_calls'] == 4
+    assert result['stats']['model_calls'] == 5
     assert result['stats']['adaptive_tool_calls'] == 1
     assert result['stats']['adaptive_tools_completed'] == 1
     assert any(t.get('round') == 1 and t['status'] == 'completed' for t in result['trace'])
@@ -234,7 +254,9 @@ def test_missing_usage_is_unknown_not_zero_complete(monkeypatch, usage):
 
     def fake_post(*args, **kwargs):
         system = kwargs['json']['messages'][0]['content']
-        content = {'claims': [], 'unresolved': []} if '提取理由' in system else semantic_response(value)
+        content = ({'claims': [], 'unresolved': []} if '提取理由' in system
+                   else {'focuses':semantic_response(value)['focuses']} if system == workflow.RESPONSE_SYSTEM
+                   else support_response(value))
         body = {'model': MODEL, 'choices': [{'finish_reason': 'stop', 'message': json_message(content)}]}
         if usage != 'absent':
             body['usage'] = usage
@@ -242,7 +264,7 @@ def test_missing_usage_is_unknown_not_zero_complete(monkeypatch, usage):
 
     monkeypatch.setattr(llm.httpx, 'post', fake_post)
     result = run_review(value, provider='deepseek', model=DeepSeek())
-    assert result['stats']['model_calls'] == 2
+    assert result['stats']['model_calls'] == 3
     assert result['stats']['usage_complete'] is False
     assert result['stats']['input_tokens'] is None
     assert result['stats']['output_tokens'] is None
@@ -292,13 +314,15 @@ def test_agent_json_final_keeps_tool_results_and_never_repairs_invalid_output(mo
         if len(sent) == 1:
             response = json_message({'claims': [], 'unresolved': []})
         elif len(sent) == 2:
-            response = tool_message('query_transactions', {'direction': 'out'})
+            response = response_message(value)
         elif len(sent) == 3:
+            response = tool_message('query_transactions', {'direction': 'out'})
+        elif len(sent) == 4:
             response = {'role': 'assistant', 'content': '取证结束。'}
         else:
-            assert len(sent) == 4, 'No retry or repair request is allowed'
+            assert len(sent) == 5, 'No retry or repair request is allowed'
             assert 'tools' not in payload
-            response = (json_message(semantic_response(value)) if final_content == 'valid'
+            response = (json_message(support_response(value)) if final_content == 'valid'
                         and payload.get('response_format') == {'type': 'json_object'}
                         else {'role': 'assistant', 'content': final_content})
         body = {'usage': {'prompt_tokens': 20, 'completion_tokens': 10},
@@ -306,7 +330,7 @@ def test_agent_json_final_keeps_tool_results_and_never_repairs_invalid_output(mo
         return httpx.Response(200, json=body)
     monkeypatch.setattr(llm.httpx, 'post', fake_post)
     result = run_review(value, provider='deepseek', mode='agent', model=DeepSeek())
-    assert len(sent) == result['stats']['model_calls'] == 4
+    assert len(sent) == result['stats']['model_calls'] == 5
     assert any(m['role'] == 'tool' and json.loads(m['content'])['transaction_ids'] for m in sent[-1]['messages'])
     assert result['stats']['adaptive_tools_completed'] == 1
     semantic = next(c for c in result['required_checks'] if c['check_id'] == 'semantic')
@@ -314,7 +338,7 @@ def test_agent_json_final_keeps_tool_results_and_never_repairs_invalid_output(mo
         assert semantic['status'] == 'completed' and result['semantic_results']
     else:
         assert semantic['status'] == 'failed' and result['run_status'] == 'partial'
-        assert not result['semantic_results'] and not result['lead_candidates']
+        assert result['semantic_results'] and not result['lead_candidates']
 
 
 def test_exact_request_frozen_full_incremental_and_independent_expected_value():

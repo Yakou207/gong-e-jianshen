@@ -90,6 +90,16 @@ class SemanticOutput(StrictOutput):
     leads: list[LeadOutput] = Field(default_factory=list, max_length=3)
 
 
+class ResponseOutput(StrictOutput):
+    focuses: list[FocusOutput]
+
+
+class SupportOutput(StrictOutput):
+    gaps: list[GapOutput]
+    leads: list[LeadOutput] = Field(default_factory=list, max_length=3)
+
+
 def contract_schemas():
     return {"claim": ClaimOutput.model_json_schema(), "extraction": ExtractionOutput.model_json_schema(),
-            "semantic": SemanticOutput.model_json_schema()}
+            "semantic": SemanticOutput.model_json_schema(), "response": ResponseOutput.model_json_schema(),
+            "support": SupportOutput.model_json_schema()}

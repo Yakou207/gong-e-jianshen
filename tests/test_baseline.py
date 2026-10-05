@@ -1,4 +1,5 @@
 """Offline B0 contract checks; no live model quality or human truth asserted."""
+from contextlib import contextmanager
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -13,6 +14,15 @@ from test_model_safety import ScriptedModel, json_message
 
 @pytest.fixture(autouse=True)
 def no_credentials_or_live_network(monkeypatch):
+    @contextmanager
+    def stream(method, *args, **kwargs):
+        assert method == 'POST'
+        response = llm.httpx.post(*args, **kwargs)
+        try:
+            yield response
+        finally:
+            response.close()
+    monkeypatch.setattr(llm.httpx, 'stream', stream)
     def forbidden(*args, **kwargs):
         raise AssertionError("baseline mechanism tests cannot read credentials or call a live API")
     monkeypatch.setattr(llm, "settings", forbidden)
@@ -69,7 +79,7 @@ def test_once_raw_reading_has_no_tools_or_business_answer_repair(monkeypatch):
     assert request == {"raw_case": baseline.raw_case_input(package)}
     assert run["input_projection"] == request["raw_case"]
     assert run["execution"]["input_hash"] == baseline.digest(run["input_projection"])
-    assert run["execution"]["max_model_calls"] == 1 and run["execution"]["thinking"] == "disabled"
+    assert run["execution"]["max_model_calls"] == 1 and run["execution"]["stage_thinking"]["final"] == "enabled"
     assert run["execution"]["model"] == model.model
 
 
@@ -229,8 +239,8 @@ def test_provider_exception_before_its_own_call_record_still_has_failed_attempt(
 def test_empty_provider_usage_stays_unknown_instead_of_zero():
     package = case()
     class WithoutUsage(ScriptedModel):
-        def complete(self, messages, tools=None):
-            response = super().complete(messages, tools)
+        def complete(self, messages, tools=None, stage=None):
+            response = super().complete(messages, tools, stage=stage)
             self.calls[-1]["usage"] = {}
             return response
     result = baseline.run_baseline(package, model=WithoutUsage([json_message(answer(package))]))
@@ -268,8 +278,9 @@ def test_deepseek_budget_usage_and_safe_truncated_raw_response(monkeypatch, outc
     monkeypatch.setattr(baseline, "DeepSeek", one_call_factory)
     result = baseline.run_baseline(package, provider="deepseek")
     assert len(captured) == 1 and "tools" not in captured[0]
-    assert captured[0]["thinking"] == {"type": "disabled"}
-    assert captured[0]["max_tokens"] == result["execution"]["max_output_tokens"] == 4096
+    assert captured[0]["thinking"] == {"type": "enabled"}
+    assert captured[0]["reasoning_effort"] == "low"
+    assert captured[0]["max_tokens"] == result["execution"]["max_output_tokens"] == 16384
     assert len(result["call_records"]) == 1
     assert "TEST_CREDENTIAL_DO_NOT_PERSIST" not in baseline.canonical(result)
     assert "HIDDEN_REASONING_DO_NOT_PERSIST" not in baseline.canonical(result)
@@ -292,12 +303,12 @@ def test_deepseek_budget_usage_and_safe_truncated_raw_response(monkeypatch, outc
 def test_baseline_preserves_current_budget_dispatch_metadata(dispatch):
     package = case()
     class BudgetFixture(ScriptedModel):
-        def complete(self, messages, tools=None):
+        def complete(self, messages, tools=None, stage=None):
             if dispatch == 'not_sent':
                 self.calls.append({'status': 'failed', 'usage': None, 'dispatch_status': dispatch,
                                    'budget_event_id': 'budget-fixture-current'})
                 raise llm.ModelError('Offline budget refusal; no underlying request')
-            response = super().complete(messages, tools)
+            response = super().complete(messages, tools, stage=stage)
             if dispatch is not None:
                 self.calls[-1].update(dispatch_status=dispatch, budget_event_id='budget-fixture-current')
             return response

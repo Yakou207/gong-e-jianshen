@@ -14,14 +14,25 @@ and exact bytes; it does not authenticate people or establish answer quality.
 artifacts: spec, schema, generator, dependency_lock, scorer, family_grouping,
            prompts (list), tools (list); each value is a file reference.
 family_grouping: reviewed_by, cases [{case_id, economic_group, split, reason}].
-reference file: case_id, case_sha256, reviewers, check_units. Each check unit
+reference file: case_id, case_sha256, visible_case_sha256, reviewers, check_units.
+The first hash binds original case bytes; the second binds raw_case_input(case)
+serialized with ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False,
+and a terminal newline. Both bindings are required and independently checked.
+Each check unit
 declares reference_check_id, label, object_scope, applicability
 (applicable/not_applicable/unresolved), adjudication_status
 (adjudicated/unresolved), reference_value, reason, evidence_sets (OR of AND
 lists). object_scope uses focus_id or material_link_id for static objects.
-People declare person_id/signed_at; reviewers additionally declare all five
-EXPOSURES below as booleans. This strict blind-reference contract rejects any
-declared exposure; a limited-exposure protocol must be defined separately.
+People declare person_id/signed_at; reviewers additionally declare every
+EXPOSURES field below as a boolean. reference_protocol defaults to strict-blind-1,
+which rejects any declared exposure. independent-initial-references-1 permits
+authored_narrative only with a nonempty reviewer.authorship_bias_disclosure.
+Reviewer exposure flags and signed_at describe the original declaration before
+that reviewer's independent initial reference seal. Preserve the initial drafts
+and declarations; record subsequent discussion separately rather than rewriting
+pre-seal exposure flags. prior_seen_related_family describes exposure outside
+this declared authoring/reference process, such as calibration or previously
+answered related cases; the actual exposure must still be declared.
 methods: B0/Fixed/Agent each declare model, generation, runner file reference,
 and budget {max_calls, max_output_tokens, total_token_budget, currency_limit}.
 reference_counts contains adjudicated/unresolved integers. retry_policy has
@@ -38,11 +49,15 @@ import json
 from pathlib import Path
 import re
 
+from aml_qc.schema import LABEL_VALUES
+from aml_qc.baseline import raw_case_input
+
 
 METHODS = ("B0", "Fixed", "Agent")
 SPLITS = {"development", "validation", "test"}
-EXPOSURES = ("saw_generator_truth", "saw_other_reference", "saw_model_outputs",
+EXPOSURES = ("saw_generator_truth", "saw_generator_private", "saw_other_reference", "saw_model_outputs",
              "authored_narrative", "prior_seen_related_family")
+REFERENCE_PROTOCOLS = ("strict-blind-1", "independent-initial-references-1")
 
 
 def _object(pairs):
@@ -89,6 +104,7 @@ class FreezeAudit:
         self.issues = []
         self.files = []
         self.exposures = []
+        self.reference_protocol = "strict-blind-1"
 
     def check(self, condition, code, location, message):
         if not condition:
@@ -149,13 +165,21 @@ class FreezeAudit:
                 exposure = person.get("exposure")
                 complete = isinstance(exposure, dict) and all(type(exposure.get(k)) is bool for k in EXPOSURES)
                 self.check(complete, "exposure_declaration_missing", loc,
-                           "Explicit boolean declarations for all five exposure categories are required.")
+                           "Explicit boolean declarations for every exposure category are required.")
+                authored = isinstance(exposure, dict) and exposure.get("authored_narrative") is True
+                author_allowed = self.reference_protocol == "independent-initial-references-1"
+                disclosure = person.get("authorship_bias_disclosure")
+                if authored and author_allowed:
+                    self.check(_text(disclosure), "authorship_bias_disclosure_missing", loc,
+                               "Author-reviewers must explicitly disclose authorship bias; they are not fully blinded.")
                 self.exposures.append({"location": loc, "person_id": identity,
                     "declaration_complete": complete,
+                    "authorship_bias_disclosure": disclosure if authored else None,
                     "declared_exposures": [k for k in EXPOSURES if isinstance(exposure, dict) and exposure.get(k) is True]})
-                self.check(not isinstance(exposure, dict) or not any(exposure.get(k) is True for k in EXPOSURES),
+                blocked = [k for k in EXPOSURES if k != "authored_narrative" or not author_allowed]
+                self.check(not isinstance(exposure, dict) or not any(exposure.get(k) is True for k in blocked),
                            "reference_exposure", loc,
-                           "Any declared authoring, related-family, truth, reference, or model-output exposure prevents this blind-reference freeze.")
+                           "Private/truth, peer-reference, model-output and outside-protocol related-family exposure block initial references; strict-blind-1 also blocks author exposure.")
         self.check(len(identities) == len(set(identities)), "duplicate_person", location,
                    "Personnel IDs must be distinct after whitespace/case normalization.")
 
@@ -163,6 +187,9 @@ class FreezeAudit:
         self.check(manifest.get("contract_version") == "evaluation-freeze-1", "contract_version", "contract_version",
                    "Expected evaluation-freeze-1; older templates need explicit conversion.")
         self.check(_text(manifest.get("experiment_id")), "experiment_id_missing", "experiment_id", "Experiment ID is required.")
+        self.reference_protocol = manifest.get("reference_protocol", "strict-blind-1")
+        self.check(_text(self.reference_protocol) and self.reference_protocol in REFERENCE_PROTOCOLS,
+                   "reference_protocol_invalid", "reference_protocol", "Use strict-blind-1 or independent-initial-references-1.")
         status = manifest.get("status")
         self.check(_text(status) and status in {"draft", "frozen"}, "invalid_status", "status", "Expected draft or frozen.")
         if status == "frozen":
@@ -203,6 +230,7 @@ class FreezeAudit:
         if not self.check(isinstance(cases, list) and bool(cases), "case_coverage_empty", "cases", "No case coverage declared."):
             cases = []
         indexed, families, packages, known_groups = {}, {}, {}, set()
+        visible_hashes = {}
         for index, case in enumerate(cases):
             loc = f"cases[{index}]"
             if not self.check(isinstance(case, dict), "invalid_case", loc, "Expected a case record."):
@@ -234,6 +262,13 @@ class FreezeAudit:
             if package is not None:
                 self.check(package.get("case_id") == case_id, "case_id_mismatch", loc, "Case file and manifest IDs differ.")
                 packages[case_id] = package
+                try:
+                    visible_raw = (json.dumps(raw_case_input(package), ensure_ascii=False, sort_keys=True,
+                                              indent=2, allow_nan=False) + "\n").encode()
+                    visible_hashes[case_id] = hashlib.sha256(visible_raw).hexdigest()
+                except (ValueError, TypeError, KeyError, OSError, UnicodeError):
+                    self.check(False, "case_visible_projection_invalid", loc,
+                               "Case must produce a valid visible reviewer projection before freezing.")
         self.check(set(group_map) == set(indexed), "family_grouping_coverage", "artifacts.family_grouping",
                    "Reviewed economic grouping must exactly cover the declared cases.")
         self.check(len(known_groups) <= 1, "known_seed_family_split", "cases",
@@ -259,6 +294,10 @@ class FreezeAudit:
                 continue
             self.check(record.get("case_id") == cid and record.get("case_sha256") == indexed[cid].get("sha256"),
                        "reference_case_binding", loc, "Reference must bind the exact declared case bytes and ID.")
+            visible_hash = record.get("visible_case_sha256")
+            self.check(_text(visible_hash) and re.fullmatch(r"[0-9a-f]{64}", visible_hash) is not None
+                       and visible_hash == visible_hashes.get(cid), "reference_visible_case_binding", loc,
+                       "Reference must also bind the exact current visible reviewer projection, including its schema.")
             self.people(record.get("reviewers"), loc + ".reviewers", minimum=2)
             units = record.get("check_units")
             if not self.check(isinstance(units, list) and bool(units), "reference_units_empty", loc,
@@ -273,7 +312,10 @@ class FreezeAudit:
                 self.check(_text(uid), "reference_check_id_missing", at, "Independent check ID is required.")
                 if _text(uid):
                     unit_ids.append(uid)
-                self.check(_text(unit.get("label")) and isinstance(unit.get("object_scope"), dict) and bool(unit["object_scope"]),
+                label = unit.get("label")
+                self.check(_text(label) and label in LABEL_VALUES, "reference_label_not_scoreable", at,
+                           "Reference label must have an implemented scoring domain.")
+                self.check(_text(label) and isinstance(unit.get("object_scope"), dict) and bool(unit["object_scope"]),
                            "reference_scope_missing", at, "Explicit check type and object/range are required.")
                 applicability = unit.get("applicability")
                 self.check(_text(applicability) and applicability in {"applicable", "not_applicable", "unresolved"}, "reference_applicability", at,
@@ -288,7 +330,11 @@ class FreezeAudit:
                                "Unresolved references cannot carry a fabricated final value.")
                 elif adjudication == "adjudicated":
                     self.check(applicability != "unresolved" and (applicability == "not_applicable" or unit.get("reference_value") is not None),
-                               "adjudicated_value_missing", at, "Adjudicated applicable units require a value, including false/zero.")
+                               "adjudicated_value_missing", at, "Adjudicated applicable units require a final value.")
+                    if applicability == "applicable":
+                        self.check(_text(label) and label in LABEL_VALUES and unit.get("reference_value") in LABEL_VALUES[label],
+                                   "reference_value_not_scoreable", at,
+                                   "Adjudicated applicable values must belong to the label's implemented scoring domain.")
                 evidence = unit.get("evidence_sets")
                 self.check(isinstance(evidence, list) and all(isinstance(group, list) and bool(group)
                            and all(isinstance(item, dict) and bool(item) for item in group) for group in evidence)
@@ -412,13 +458,18 @@ class FreezeAudit:
             "planned_currency_ceiling": str(ceiling) if ceiling is not None else None,
             "currency": currency, "execution_budget_enforced": False,
             "personnel_declarations": self.exposures,
+            "reference_protocol": self.reference_protocol,
+            "exposure_declaration_scope": "before_independent_initial_reference_seal",
+            "author_reviewer_count": len({row["person_id"].strip().casefold() for row in self.exposures
+                if _text(row["person_id"]) and "authored_narrative" in row["declared_exposures"]}),
             "blind_reference_declared_clear": bool(self.exposures) and all(
                 row["declaration_complete"] and not row["declared_exposures"] for row in self.exposures),
             "limitations": ["File hashes and personnel declarations do not authenticate identities, independence, or reference quality.",
                 "This validator executes no runner or scorer; invoke the saved-run scorer separately after freezing.",
                 "Unresolved reference units remain explicit; this report is not a quality score or paid-cost result.",
                 "Only submitted economic grouping declarations are checked; no automatic proof of family independence or complete Claim semantics.",
-                "Budget checks compare declared ceilings only; no execution-time currency stop or actual-cost reconciliation is implemented."]}
+                "Budget checks compare declared ceilings only; no execution-time currency stop or actual-cost reconciliation is implemented.",
+                "Pre-seal exposure declarations do not authenticate initial seals, preserved independent drafts, or later discussion chronology."]}
 
 
 def validate_manifest(path):

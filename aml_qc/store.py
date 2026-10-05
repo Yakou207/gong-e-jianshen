@@ -14,6 +14,8 @@ from .leads import lead_context_hash
 from . import claim_edits, migrations
 from .workflow import IMPLEMENTATION_HASH, default_schema, focus_evidence
 
+_MISSING_REVIEW_EVENT = object()
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -191,9 +193,20 @@ class Store:
                       for e in db.execute("SELECT * FROM events WHERE case_id=? ORDER BY seq", (case_id,))]
             history = [{"run_id": r["run_id"], "source_hash": r["source_hash"], "created_at": r["created_at"]}
                        for r in db.execute("SELECT run_id,source_hash,created_at FROM runs WHERE case_id=? ORDER BY created_at DESC", (case_id,))]
-            historical_candidates = [candidate for r in db.execute(
-                "SELECT result FROM runs WHERE case_id=? ORDER BY created_at", (case_id,))
-                for candidate in json.loads(r["result"]).get("lead_candidates", [])]
+            historical_runs = [json.loads(r["result"]) for r in db.execute(
+                "SELECT result FROM runs WHERE case_id=? ORDER BY created_at", (case_id,))]
+            historical_candidates = [candidate for saved in historical_runs for candidate in saved.get("lead_candidates", [])]
+            governed_fee_history = []
+            for saved in historical_runs:
+                receipt = saved.get("governed_development") or {}
+                if not isinstance(receipt.get("budget"), dict):
+                    continue
+                budget = {key: receipt["budget"][key] for key in
+                          ("currency", "spent", "conservative_spent", "held", "remaining", "total", "status", "stop_reason")
+                          if key in receipt["budget"]}
+                governed_fee_history.append({key: saved.get(key) for key in
+                    ("run_id", "source_hash", "created_at", "mode", "run_status")} |
+                    {"governed_development": {"budget": budget, "attempt_id": receipt.get("attempt_id")}})
         engine_changed = bool(run and run.get("execution") and
                               run["execution"].get("implementation_hash") != IMPLEMENTATION_HASH)
         stale = bool(run and (run["source_hash"] != row["source_hash"] or engine_changed))
@@ -263,6 +276,7 @@ class Store:
                 "review_events": events, "open_items": open_items, "pending_checks": pending_checks,
                 "review_status": status, "can_pass": can_pass, "history": history, "audit_integrity": integrity,
                 "engine_changed": engine_changed, "annotations": annotations,
+                "governed_fee_history": governed_fee_history,
                 "lead_dispositions": leads,
                 "claim_proposals": proposals, "claim_amendments": (run or {}).get("claim_amendments", []),
                 "annotation_pending": label_pending, "annotation_pending_count": len(label_pending)}
@@ -508,7 +522,8 @@ class Store:
         return self.get(case_id)
 
     def review(self, case_id, *, action, target_id, reason, actor="reviewer", resolution=None,
-               new_value=None, claim_patch=None, evidence=None, snapshot_id=None, expected_event_id=None, previous_event_id=None):
+               new_value=None, claim_patch=None, evidence=None, snapshot_id=None,
+               expected_event_id=_MISSING_REVIEW_EVENT, previous_event_id=None):
         if not reason.strip() or not actor.strip():
             raise ValueError("人工裁决必须记录人员和依据")
         state = self.get(case_id)
@@ -546,6 +561,17 @@ class Store:
                                      snapshot_id=snapshot_id, expected_event_id=expected_event_id)
         if target_id != "task" and target_id not in issues:
             raise ValueError("人工裁决对象不属于当前快照")
+        if snapshot_id != run["snapshot_id"]:
+            raise ValueError("任务和问题裁决必须绑定当前快照，请刷新后重试")
+        if expected_event_id is _MISSING_REVIEW_EVENT:
+            raise ValueError("任务和问题裁决必须提交预期事件，首次裁决明确传null")
+        # Same-source task disputes survive a rerun. An old source's decisions
+        # cannot lock a new source, while every action pins the current snapshot.
+        prior = next((event for event in reversed(state["review_events"])
+                      if event.get("source_hash") == state["source_hash"] and event.get("target_id") == target_id
+                      and event.get("action") in {"confirm", "reject", "request_correction", "dispute", "reconfirm", "close_item"}), {})
+        if expected_event_id != prior.get("event_id"):
+            raise ValueError("该任务或问题已被其他人员处置，请刷新后重试")
         if target_id == "task":
             if action not in {"confirm", "reconfirm", "dispute", "request_correction", "close_item"}:
                 raise ValueError("该动作不适用于整个任务")
@@ -574,6 +600,7 @@ class Store:
                 raise ValueError("资料、运行或人工记录已改变，请刷新后重新裁决")
             self._event(db, case_id, {"action": action, "target_id": target_id, "reason": reason, "actor": actor,
                         "resolution": resolution, "snapshot_id": run["snapshot_id"], "source_hash": state["source_hash"],
+                        "previous_event_id": prior.get("event_id"),
                         "evidence": issues.get(target_id, {}).get("evidence", [])})
         return self.get(case_id)
 

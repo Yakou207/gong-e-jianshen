@@ -20,20 +20,24 @@ Raw model records, journal and scoring index stay in the local execution directo
 """
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 import fcntl
 import hashlib
+from html import unescape
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
+from urllib.parse import urlsplit
 
 from aml_qc.baseline import raw_case_input, run_baseline
 from aml_qc.depgraph import digest
 from aml_qc.evaluation_budget import CONTEXT_BOUND, OUTPUT_BOUND, BudgetLedger, BudgetedModel
-from aml_qc.llm import DeepSeek
+from aml_qc.llm import GENERATION, REQUEST_TIMEOUT_SECONDS, DeepSeek
 from aml_qc.workflow import run_review
-from scripts.score_evaluation import read_object, read_ref, unique_rows
+from scripts.score_evaluation import read_object, read_ref, unique_rows, verify_call_configuration
 from scripts.validate_evaluation import _credential_path, _read_json, _timestamp, validate_manifest
 
 
@@ -41,9 +45,8 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPLEMENTATIONS = [f'aml_qc/{name}.py' for name in ('core', 'ingest', 'schema', 'contracts', 'llm', 'depgraph',
     'workflow', 'claim_edits', 'leads', 'baseline', 'scoring_inputs', 'evaluation_budget')]
 IMPLEMENTATIONS += ['scripts/run_evaluation.py', 'scripts/score_evaluation.py', 'scripts/validate_evaluation.py']
-PROMPTS = [f'config/prompts/v2.10/{name}.txt' for name in ('agent', 'base', 'extraction', 'semantic')]
+PROMPTS = [f'config/prompts/v2.24/{name}.txt' for name in ('agent', 'base', 'extraction', 'response', 'semantic')]
 PROMPTS += ['config/prompts/b0-v1/direct.txt']
-GENERATION = {'temperature': 0, 'thinking': 'disabled', 'max_output_tokens': 4096}
 
 
 def now():
@@ -124,22 +127,97 @@ class Journal:
         self.events.append(row)
 
 
+def _verified_holidays(pricing, year):
+    proof = pricing.get('holiday_verification')
+    if proof is None:
+        return set()
+    try:
+        if (not isinstance(proof, dict) or proof.get('contract') != 'official-holiday-tariff-evidence-1'
+                or type(proof.get('year')) is not int or proof['year'] != year
+                or proof.get('model') != 'deepseek-flash' or not isinstance(proof.get('dates'), list)
+                or not proof['dates'] or pricing.get('currency') != 'CNY'
+                or pricing.get('unit_tokens') != 1000000 or pricing.get('period') != 'off_peak'):
+            raise ValueError('invalid holiday declaration')
+
+        def plain(value):
+            value = re.sub(r'<(?:script|style)\b[^>]*>.*?</(?:script|style)>', '', value, flags=re.I | re.S)
+            return re.sub(r'\s+', '', unescape(re.sub(r'<[^>]*>', '', value)))
+
+        def capture(name):
+            item = proof[name]; relative = Path(item['path']); url = urlsplit(item['url'])
+            if (relative.is_absolute() or '..' in relative.parts or relative.suffix.lower() not in {'.html', '.htm'}
+                    or any(part.startswith('.env') for part in relative.parts)
+                    or any((ROOT / Path(*relative.parts[:n])).is_symlink() for n in range(1, len(relative.parts) + 1))
+                    or url.scheme != 'https' or url.username or url.password or url.query or url.fragment
+                    or not re.fullmatch(r'[a-f0-9]{64}', item['sha256'])):
+                raise ValueError('unsafe holiday source capture')
+            if name == 'government_capture':
+                if url.hostname != 'www.gov.cn' or not url.path.startswith(('/gongbao/', '/zhengce/')):
+                    raise ValueError('unverified holiday government source')
+            elif item['url'] != 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/' or item['url'] != pricing.get('source_url'):
+                raise ValueError('unverified holiday tariff source')
+            raw = (ROOT / relative).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != item['sha256']:
+                raise ValueError('holiday source capture changed')
+            return raw.decode('utf-8')
+
+        government = plain(capture('government_capture'))
+        if f'国务院办公厅关于{year}年部分节假日安排的通知' not in government:
+            raise ValueError('holiday notice year or title mismatch')
+        calendar = set()
+        pattern = r'(\d{1,2})月(\d{1,2})日(?:（[^）]*）)?至(?:(\d{1,2})月)?(\d{1,2})日(?:（[^）]*）)?放假'
+        for month, first, last_month, last in re.findall(pattern, government):
+            start = date(year, int(month), int(first)); end = date(year, int(last_month or month), int(last))
+            if end < start:
+                raise ValueError('unverified holiday range')
+            calendar.update((start + timedelta(days=n)).isoformat() for n in range((end - start).days + 1))
+        holidays = set(proof['dates'])
+        if len(holidays) != len(proof['dates']) or not holidays <= calendar:
+            raise ValueError('declared holiday date not in official notice')
+        official = capture('pricing_capture')
+        if '中国法定节假日全天均为空闲时段' not in plain(official):
+            raise ValueError('holiday off-peak tariff not verified')
+        rows = [[plain(cell) for cell in re.findall(r'<t[dh]\b[^>]*>(.*?)</t[dh]>', row, re.I | re.S)]
+                for row in re.findall(r'<tr\b[^>]*>(.*?)</tr>', official, re.I | re.S)]
+        header = next(row for row in rows if row and row[0] == '模型'
+                      and any(re.fullmatch(r'deepseek-flash(?:\(\d+\))?', value) for value in row))
+        column = next(i for i, value in enumerate(header)
+                      if re.fullmatch(r'deepseek-flash(?:\(\d+\))?', value)) - len(header)
+        rates, category = {}, None
+        for row in rows:
+            text = ''.join(row)
+            for label, key in [('缓存命中', 'input_cache_hit'), ('缓存未命中', 'input_cache_miss'), ('百万tokens输出', 'output')]:
+                if label in text:
+                    category = key
+            if '空闲时段' in row and category is not None:
+                value = row[column]
+                if not re.fullmatch(r'\d+(?:\.\d+)?元', value):
+                    raise ValueError('unverified holiday price cell')
+                rates[category] = Decimal(value.removesuffix('元'))
+        if rates != {k: Decimal(str(v)) for k, v in pricing['rates'].items()}:
+            raise ValueError('holiday tariff differs from frozen rates')
+        return holidays
+    except (KeyError, IndexError, TypeError, ValueError, OSError, StopIteration, ArithmeticError) as error:
+        raise ValueError('holiday_evidence_invalid:' + str(error)) from error
+
+
 def verify_pricing_window(pricing, *, live):
     deadline = pricing.get('valid_until')
-    if not _timestamp(deadline) or now() + timedelta(seconds=60) >= datetime.fromisoformat(deadline):
+    if not _timestamp(deadline) or now() + timedelta(seconds=REQUEST_TIMEOUT_SECONDS) >= datetime.fromisoformat(deadline):
         raise ValueError('pricing_expired_or_too_near_expiry')
     if live:
         current = now().astimezone(timezone(timedelta(hours=8)))
+        holidays = _verified_holidays(pricing, current.year)
         # The official weekday peak schedule excludes Chinese statutory
         # holidays. Without a verified calendar, that interval is unknown;
         # do not silently treat every weekday as a non-holiday.
-        if current.weekday() < 5 and (9 <= current.hour < 12 or 14 <= current.hour < 18):
+        if current.weekday() < 5 and (9 <= current.hour < 12 or 14 <= current.hour < 18) and current.date().isoformat() not in holidays:
             raise ValueError('weekday_peak_requires_verified_holiday_calendar')
         if pricing.get('period') != 'off_peak':
             raise ValueError('frozen_pricing_period_is_not_current')
         # Do not let a request enter an interval whose tariff is unknown.
-        later = current + timedelta(seconds=60)
-        if later.weekday() < 5 and (9 <= later.hour < 12 or 14 <= later.hour < 18):
+        later = current + timedelta(seconds=REQUEST_TIMEOUT_SECONDS)
+        if later.weekday() < 5 and (9 <= later.hour < 12 or 14 <= later.hour < 18) and later.date().isoformat() not in holidays:
             raise ValueError('pricing_transition_within_request_timeout')
 
 
@@ -176,7 +254,7 @@ def preflight(manifest_path, output_dir, *, live, check_price_window=True):
         runner = 'aml_qc/baseline.py' if name == 'B0' else 'aml_qc/workflow.py'
         if method['runner']['sha256'] != sha_file(ROOT / runner) or method['generation'] != GENERATION:
             raise ValueError('unsupported_or_changed_runner_configuration')
-        if method['budget']['max_calls'] != (1 if name == 'B0' else 6) or method['budget']['max_output_tokens'] != 4096:
+        if method['budget']['max_calls'] != (1 if name == 'B0' else 6) or method['budget']['max_output_tokens'] != GENERATION['max_output_tokens']:
             raise ValueError('unsupported_call_or_output_limit')
         if live and method['model'] != 'deepseek-flash':
             raise ValueError('live_model_is_not_verified_deepseek_flash')
@@ -242,12 +320,14 @@ def validate_call_journal(events, plans, manifest, directory):
                 raise ValueError('call_event_budget_differs_from_freeze')
             if event.get('request_hash') != digest(event.get('request')):
                 raise ValueError('call_event_request_hash_mismatch')
+            verify_call_configuration([event], manifest['methods'][planned[run_id]['method']])
         elif kind in {'call_finished', 'call_blocked'}:
             record = event.get('record', {})
             if record.get('budget_event_id') != call_id or record.get('call_id') != call_id:
                 raise ValueError('call_event_record_identity_mismatch')
             if record.get('request_hash') != digest(record.get('request')):
                 raise ValueError('call_event_request_hash_mismatch')
+            verify_call_configuration([record], manifest['methods'][planned[run_id]['method']])
         call[kind] = event
     for call in calls.values():
         reserved, finished, blocked = (call.get(name) for name in ('call_reserved', 'call_finished', 'call_blocked'))
@@ -256,6 +336,8 @@ def validate_call_journal(events, plans, manifest, directory):
         terminal = finished or blocked
         if reserved and terminal and reserved['request_hash'] != terminal['record']['request_hash']:
             raise ValueError('call_event_request_changed')
+        if reserved and terminal and 'stage' in reserved and reserved['stage'] != terminal['record'].get('stage'):
+            raise ValueError('call_event_stage_changed')
     # Validate every saved raw before permitting ANY new dispatch, including
     # later plans whose files would otherwise only be inspected after dispatch.
     for run_id, filename in ((rid, name) for rid in planned for name in ('raw.json', 'interrupted.json')):
@@ -271,6 +353,8 @@ def validate_call_journal(events, plans, manifest, directory):
             raise ValueError('raw_call_ids_differ_from_journal')
         for cid, record in by_id.items():
             call = expected[cid]
+            if 'stage' in record:
+                verify_call_configuration([record], manifest['methods'][plan['method']])
             terminal = call.get('call_finished') or call.get('call_blocked')
             if terminal is None:
                 if (filename == 'interrupted.json' and call.get('call_reserved')
@@ -286,6 +370,10 @@ def validate_call_journal(events, plans, manifest, directory):
                 raise ValueError('raw_call_differs_from_journal')
             request_hash = record.get('provider_request_hash') if plan['method'] == 'B0' and filename == 'raw.json' else record.get('request_hash')
             if request_hash != recorded['request_hash']:
+                raise ValueError('raw_call_request_differs_from_journal')
+            if ('stage' in record or 'stage' in recorded) and record.get('stage') != recorded.get('stage'):
+                raise ValueError('raw_call_stage_differs_from_journal')
+            if 'stage' in record and record.get('request') != recorded.get('request'):
                 raise ValueError('raw_call_request_differs_from_journal')
 
 

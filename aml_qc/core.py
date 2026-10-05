@@ -123,6 +123,8 @@ def check_coverage(case, start=None, end=None, fields=None):
 
 def query_transactions(case, query=None):
     query = query or {}
+    if "transaction_id" in query and (not isinstance(query["transaction_id"], str) or not query["transaction_id"].strip()):
+        raise ValueError("transaction_id须为非空字符串")
     start, end = _time(query.get("start", case["coverage_start"])), _time(query.get("end", case["coverage_end"]))
     if start >= end:
         raise ValueError("查询范围必须为非空半开区间")
@@ -131,6 +133,8 @@ def query_transactions(case, query=None):
              "direction": query.get("direction"), "counterparty_ref": query.get("counterparty_ref", query.get("counterparty_token")),
              "counterparty_token": entity["counterparty_token"], "transaction_set_version": "sha256:" + _transaction_set_hash(case),
              "transaction_set_hash": _transaction_set_hash(case), "fields": sorted(query.get("fields") or TRANSACTION_FIELDS)}
+    if "transaction_id" in query:
+        scope["transaction_id"] = query["transaction_id"]
     coverage = check_coverage(case, _iso(start), _iso(end), query.get("fields"))
     if query.get("account_id", case["subject_account_id"]) != case["subject_account_id"]:
         raise ValueError("工具只能查询本案账户")
@@ -140,6 +144,7 @@ def query_transactions(case, query=None):
     if entity["execution_status"] == "completed":
         rows = [r for r in _unique_transactions(case) if r["account_id"] == case["subject_account_id"]
                 and start <= _time(r["timestamp"]) < end
+                and ("transaction_id" not in query or r["transaction_id"] == query["transaction_id"])
                 and (not query.get("direction") or r["direction"] == query["direction"])
                 and (entity["counterparty_token"] is None or r["counterparty_token"] == entity["counterparty_token"])]
     return {"execution_status": entity["execution_status"], "rows": rows, "transaction_ids": [r["transaction_id"] for r in rows],

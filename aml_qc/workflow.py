@@ -15,22 +15,23 @@ from pydantic import ValidationError
 from . import core
 from .claim_edits import merge_claim_amendments
 from .depgraph import Evaluator, canonical, digest, sources_for
-from .contracts import ClaimOutput, ExtractionOutput, SemanticOutput, contract_schemas
+from .contracts import ClaimOutput, ExtractionOutput, ResponseOutput, SemanticOutput, SupportOutput, contract_schemas
 from .ingest import validate_case
-from .llm import DeepSeek, ModelError, json_answer
+from .llm import GENERATION, DeepSeek, ModelError, json_answer
 from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "workflow-2.1"
-PROMPT_VERSION = "claims-response-2.10"
-PROMPT_ROOT = ROOT / "config/prompts/v2.10"
+VERSION = "workflow-2.16"
+PROMPT_VERSION = "claims-response-2.24"
+PROMPT_ROOT = ROOT / "config/prompts/v2.24"
 FIXED_POLICY = {"version": "fixed-visible-scope-1", "steps": ["check_coverage", "query_transactions"],
                 "scope": "entire visible case interval, all directions and counterparties",
                 "applies_when": "model semantic review is required"}
 BASE_SYSTEM = (PROMPT_ROOT / "base.txt").read_text().strip()
 EXTRACT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "extraction.txt").read_text().strip()
-SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
-AGENT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip() + "\n最终答复的格式与判断边界：\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip()
+RESPONSE_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "response.txt").read_text().strip() + "\n输出JSON结构：\n" + canonical(contract_schemas()["response"])
+SEMANTIC_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "semantic.txt").read_text().strip() + "\n输出JSON结构：\n" + canonical(contract_schemas()["support"])
+AGENT_SYSTEM = BASE_SYSTEM + "\n" + (PROMPT_ROOT / "agent.txt").read_text().strip()
 IMPLEMENTATION_HASH = digest({name: (ROOT / "aml_qc" / name).read_text() for name in
                               ["core.py", "ingest.py", "schema.py", "depgraph.py", "workflow.py", "llm.py", "contracts.py",
                                "annotations.py", "store.py", "exports.py", "api.py", "migrations.py", "leads.py", "claim_edits.py"]})
@@ -121,10 +122,10 @@ def focus_evidence(case, focus):
 
 def tool_definitions():
     specs = [
-        ("query_transactions", "查询本案指定范围流水并精确汇总；空集也保留查询范围。",
+        ("query_transactions", "查询本案指定范围流水并精确汇总；可按已见交易ID定位实际字段，空集保留查询范围。",
          {"direction": {"type": "string", "enum": ["in", "out"]}, "counterparty_token": {"type": "string"},
-          "start": {"type": "string"}, "end": {"type": "string"}}),
-        ("read_material", "读取目录中的一份材料；缺失也返回目录范围。", {"material_id": {"type": "string"}}),
+          "start": {"type": "string"}, "end": {"type": "string"}, "transaction_id": {"type": "string"}}),
+        ("read_material", "读取当前目录或明确材料关联引用的一份材料；已知但缺失也返回目录范围，不接受猜测ID。", {"material_id": {"type": "string"}}),
         ("read_document", "读取当前案件文档。", {"document_id": {"type": "string"}}),
         ("resolve_entity", "用明确标识或已确认映射核实对象，不按名称相似合并。", {"entity": {"type": "string"}}),
         ("check_coverage", "查看来源覆盖声明及缺失范围。", {}),
@@ -148,12 +149,20 @@ def execute_tool(case, schema, evaluator, name, args):
     if name == "query_transactions":
         deps += ["source:transactions", "source:coverage", "source:entities"]
         def compute():
-            return core.query_transactions(case, args)
+            result = core.query_transactions(case, args)
+            result["rows"] = [{field: row[field] for field in result["scope"]["fields"] if field in row}
+                              for row in result["rows"]]
+            return result
     elif name == "read_material":
-        deps += ["source:materials"]
+        material_ids = {m["material_id"] for m in case.get("materials", [])}
+        referenced_material_ids = {link["material_id"] for link in case.get("material_links", [])}
+        if args.get("material_id") not in material_ids | referenced_material_ids:
+            raise ValueError("材料ID必须来自当前材料目录或明确材料关联")
+        deps += ["source:materials", "source:material_links"]
         def compute():
             return {"material": next((m for m in case.get("materials", []) if m["material_id"] == args.get("material_id")), None),
-                    "scope": {"material_ids": [m["material_id"] for m in case.get("materials", [])], "source": "current_snapshot"}}
+                    "scope": {"material_ids": [m["material_id"] for m in case.get("materials", [])],
+                              "referenced_material_ids": sorted(referenced_material_ids), "source": "current_snapshot"}}
     elif name == "read_document":
         deps += ["source:documents"]
         def compute():
@@ -181,6 +190,107 @@ def execute_tool(case, schema, evaluator, name, args):
     return evaluator.evaluate(key, name, args, deps, compute)
 
 
+def transaction_observations(trace):
+    """Summarize only rows actually returned by successful reads, with scope."""
+    return [{"result_ref": row["result_ref"], "scope": deepcopy(row["result"]["scope"]),
+             "coverage": deepcopy(row["result"]["coverage"]),
+             "rows": [{k: value[k] for k in (*core.TRANSACTION_FIELDS, "amount_cents") if k in value}
+                      for value in row["result"]["rows"]]}
+            for row in trace if row["tool"] == "query_transactions" and row["status"] == "completed"
+            and row["result"].get("execution_status") == "completed"]
+
+
+def read_scope_progress(case, trace):
+    """Whole-interval reads are separate from source coverage or business support."""
+    progress = {direction: {"whole_visible_interval_read": False, "successful_result_refs": []}
+                for direction in ("in", "out")}
+    progress["meaning"] = "in/out均列出只为计量工具实际执行读取范围，不分配原文或任务的必需检查义务；false只表示该方向整段可见区间尚未枚举，不能反推全集命题或已读支持端点缺证。是否需要全集依据原文和冻结任务明确的被解释集合；来源覆盖完整性见query coverage，材料支持与业务判断须另行核验。"
+    for row in trace:
+        if (row["tool"] != "query_transactions" or row["status"] != "completed"
+                or row.get("dispatch_status", "sent") != "sent" or not row.get("result_ref")
+                or row["result"].get("execution_status") != "completed"):
+            continue
+        scope = row["result"]["scope"]
+        if ("transaction_id" in scope or scope.get("counterparty_token") is not None
+                or core._time(scope["start"]) > core._time(case["coverage_start"])
+                or core._time(scope["end"]) < core._time(case["coverage_end"])):
+            continue
+        for direction in ("in", "out"):
+            if scope.get("direction") in (None, direction):
+                progress[direction]["whole_visible_interval_read"] = True
+                if row["result_ref"] not in progress[direction]["successful_result_refs"]:
+                    progress[direction]["successful_result_refs"].append(row["result_ref"])
+    return progress
+
+
+def material_transaction_ids(case):
+    """Read literal transaction references from explicit material fields only."""
+    identifiers = set()
+    def visit(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if isinstance(key, str):
+                    if key == "transaction_id" or key.endswith("_transaction_id"):
+                        if isinstance(child, str) and child.strip():
+                            identifiers.add(child)
+                    elif key == "transaction_ids" or key.endswith("_transaction_ids"):
+                        if isinstance(child, list):
+                            identifiers.update(item for item in child if isinstance(item, str) and item.strip())
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(case.get("materials", []))
+    return sorted(identifiers)
+
+
+def material_transaction_read_progress(case, trace):
+    """Declared IDs are not transaction evidence until an actual successful read."""
+    entries = {identifier: {"transaction_id": identifier, "status": "pending", "successful_result_refs": []}
+               for identifier in material_transaction_ids(case)}
+    for row in trace:
+        completed = row["status"] == "completed" or (row["status"] == "reused" and row.get("original_status") == "completed")
+        if (row["tool"] != "query_transactions" or not completed
+                or row.get("dispatch_status", "sent") != "sent" or not row.get("result_ref")
+                or row["result"].get("execution_status") != "completed"):
+            continue
+        scope = row["result"]["scope"]
+        returned = {item["transaction_id"] for item in row["result"]["rows"]}
+        unrestricted_interval = (scope.get("direction") is None and scope.get("counterparty_ref") is None
+            and scope.get("counterparty_token") is None
+            and core._time(scope["start"]) <= core._time(case["coverage_start"])
+            and core._time(scope["end"]) >= core._time(case["coverage_end"]))
+        for identifier, entry in entries.items():
+            if identifier in returned:
+                entry["status"] = "read_returned"
+            elif unrestricted_interval and scope.get("transaction_id", identifier) == identifier:
+                if entry["status"] == "pending":
+                    entry["status"] = "queried_no_visible_row"
+            else:
+                continue
+            if row["result_ref"] not in entry["successful_result_refs"]:
+                entry["successful_result_refs"].append(row["result_ref"])
+    return {"entries": list(entries.values()),
+            "pending_transaction_ids": [identifier for identifier, entry in entries.items() if entry["status"] == "pending"],
+            "meaning": "ID仅来自材料显式字段；状态及引用仅记录实际成功读取。当前可见范围未返回该ID不证明现实不存在；来源覆盖完整性及材料支持须另行核验。未读引用保持未完成，不按ID文字推断交易字段。"}
+
+
+def response_input(case, schema=None):
+    schema = schema or case.get("schema") or default_schema()
+    scope = case.get("review_scope", {})
+    return {"task_mode": case["task_mode"],
+            "narrative": {k: narrative(case)[k] for k in ("document_id", "revision", "text")},
+            "focuses": [{k: deepcopy(focus[k]) for k in ("focus_id", "text", "response_requirements") if k in focus}
+                        for focus in focuses_for(case)],
+            "alert_revision": (case.get("alert") or {}).get("revision"),
+            "review_scope": {"target_labels": deepcopy(scope.get("target_labels", list(schema["labels"]))),
+                             "upgraded_leads": [{k: deepcopy(focus[k]) for k in ("focus_id", "text", "response_requirements") if k in focus}
+                                                for focus in scope.get("upgraded_leads", [])]},
+            "scope": {"account": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]},
+            "schema_version": schema["schema_version"], "schema_hash": digest(schema),
+            "response_label": deepcopy(schema["labels"].get("alert_response", {}))}
+
+
 def semantic_input(case, checks):
     # Keep inspectable summaries in the initial context. Detailed rows remain
     # available through the same read-only tools and the stored evidence graph.
@@ -190,19 +300,37 @@ def semantic_input(case, checks):
         if isinstance(value, list):
             return [compact(v) for v in value]
         return value
-    return {"task_mode": case["task_mode"], "focuses": focuses_for(case), "documents": case.get("documents", []),
+    material_results = {row["link_id"]: row for row in checks.get("material_results", [])}
+    missing = [link["link_id"] for link in case.get("material_links", []) if link["link_id"] in material_results
+               and not any(row["material_id"] == link["material_id"]
+                           and str(row["revision"]) == str(link.get("material_revision", link.get("revision", "")))
+                           for row in case.get("materials", []))]
+    gap_basis_catalog = {
+        "identity_unresolved": [row["claim_id"] for row in checks.get("claim_results", [])
+                                if row.get("execution_status") == "identity_unresolved"],
+        "missing_linked_material": missing,
+        "material_mismatch": [uid for uid, row in material_results.items() if row.get("result") == "mismatch"],
+        "explanation_support": ["narrative"],
+    }
+    return {"response_coverage_input": response_input(case),
+            "task_mode": case["task_mode"], "focuses": focuses_for(case), "documents": case.get("documents", []),
             "materials": case.get("materials", []), "material_links": case.get("material_links", []),
-            "checks": compact(checks),
+            "coverage": deepcopy(case.get("coverage", [])),
+            "relationship_support_source_candidates": {
+                "materials": [{"material_id": row["material_id"], "revision": row["revision"]} for row in case.get("materials", [])],
+                "other_documents": [{"document_id": row["document_id"], "revision": row["revision"]}
+                                    for row in case.get("documents", []) if row["document_id"] != "narrative"],
+                "meaning": "原理由是待核对象；材料和其他文档只是当前可见来源候选，须与原文具体关系及所需依据实际关联后核验。候选类别或目录为空均不决定原文语义或关系支持。"},
+            "checks": compact(checks), "gap_basis_catalog": gap_basis_catalog,
             "lead_basis_catalog": [{k: row[k] for k in ("basis_ref", "kind", "content_hash")} for row in lead_basis(case, checks).values()],
             "scope": {"account": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}}
 
 
-def normalize_semantic(case, response, checks=None, tool_trace=(), execution=None):
+def normalize_response(case, response):
     try:
-        response = SemanticOutput.model_validate(response).model_dump()
+        response = ResponseOutput.model_validate(response).model_dump()
     except ValidationError as exc:
-        raise ModelError("语义候选不符合结构契约") from exc
-    checks = checks or {}
+        raise ModelError("回应候选不符合结构契约") from exc
     expected = {f["focus_id"] for f in focuses_for(case)}
     items = response.get("focuses", [])
     if not isinstance(items, list) or any(not isinstance(f, dict) or not isinstance(f.get("focus_id"), str) for f in items) or {f.get("focus_id") for f in items} != expected or len(items) != len(expected):
@@ -212,7 +340,16 @@ def normalize_semantic(case, response, checks=None, tool_trace=(), execution=Non
             raise ModelError("非法回应判断状态")
         if focus["status"] == "addressed" and not focus.get("quote"):
             raise ModelError("回应判断缺少原文")
-        focus["evidence"] = [doc_evidence(case, focus.get("quote", "")), focus_evidence(case, focus)]
+        doc_evidence(case, focus.get("quote", ""))
+    return {"focuses": items}
+
+
+def normalize_support(case, response, checks=None, tool_trace=(), execution=None):
+    try:
+        response = SupportOutput.model_validate(response).model_dump()
+    except ValidationError as exc:
+        raise ModelError("支持候选不符合结构契约") from exc
+    checks = checks or {}
     gaps = response.get("gaps", [])
     if not isinstance(gaps, list):
         raise ModelError("材料缺口格式错误")
@@ -234,7 +371,7 @@ def normalize_semantic(case, response, checks=None, tool_trace=(), execution=Non
             if not any(e.get("document_id") == cited["document_id"] and e.get("revision") == cited["revision"] and
                        e["span"][0] < cited["span"][1] and cited["span"][0] < e["span"][1] for e in spans):
                 raise ModelError("身份缺口与所引用事实不是同一原文对象")
-            gap.update(title="理由中的对象身份待核实", reason="原文名称未完成明确映射；已给定账户标识的材料字段对应不等于该名称身份已确认。")
+            gap.update(title="理由所指对象或交易范围待定位", reason="原文对象引用尚未完成可靠对应；已给定账户标识的材料字段对应不等于原文所指对象及范围已确认。")
             evidence += related.get("evidence", [])
         elif kind in {"missing_linked_material", "material_mismatch"}:
             related, link = material_results.get(ref), links.get(ref)
@@ -259,15 +396,30 @@ def normalize_semantic(case, response, checks=None, tool_trace=(), execution=Non
         gap["model_draft"] = {"reason": draft, "requested_material": gap["requested_material"], "status": "unverified_model_suggestion"}
         gap["evidence"] = evidence
     gaps = list({(g["basis_kind"], g["basis_ref"], g["quote"]): g for g in gaps}.values())
-    return {"focuses": items, "gaps": gaps,
+    return {"gaps": gaps,
             "leads": normalize_leads(case, response["leads"], lead_basis(case, checks, tool_trace), execution)}
+
+
+def normalize_semantic(case, response, checks=None, tool_trace=(), execution=None):
+    """Strict compatibility validation; live requests use independent contracts."""
+    try:
+        response = SemanticOutput.model_validate(response).model_dump()
+    except ValidationError as exc:
+        raise ModelError("语义候选不符合结构契约") from exc
+    focuses = normalize_response(case, {"focuses": response["focuses"]})["focuses"]
+    return {"focuses": [{**focus, "evidence": [doc_evidence(case, focus.get("quote", "")), focus_evidence(case, focus)]}
+                        for focus in focuses],
+            **normalize_support(case, {"gaps": response["gaps"], "leads": response["leads"]}, checks, tool_trace, execution)}
 
 
 def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None, fixed_trace=()):
     data = semantic_input(case, checks)
+    data["material_transaction_read_progress"] = material_transaction_read_progress(case, fixed_trace if mode == "fixed" else ())
     if mode == "fixed":
         # Cache bookkeeping is not model input: a fresh and reused read with
         # identical facts must produce the same complete semantic request.
+        data["transaction_observations"] = transaction_observations(fixed_trace)
+        data["read_scope_progress"] = read_scope_progress(case, fixed_trace)
         data["fixed_tool_results"] = [{k: row[k] for k in ("tool", "arguments", "result", "status", "result_ref")}
                                       for row in fixed_trace]
         data["lead_basis_catalog"] = [{k: row[k] for k in ("basis_ref", "kind", "content_hash")}
@@ -275,10 +427,23 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
     execution = evaluator.sources["source:execution"]["value"]
     if mode == "fixed":
         base = [{"role": "system", "content": SEMANTIC_SYSTEM}, {"role": "user", "content": canonical(data)}]
-        semantic = normalize_semantic(case, json_answer(model.complete(base)), checks, fixed_trace, execution=execution)
-        return {"semantic": semantic, "agent_trace": [], "adaptive_rounds": 0}
+        semantic = normalize_support(case, json_answer(model.complete(base)), checks, fixed_trace, execution=execution)
+        return {"semantic": semantic, "agent_trace": [], "adaptive_rounds": 0,
+                "material_transaction_read_progress": data["material_transaction_read_progress"]}
+    initial_information = {
+        field: {"content_path": "case." + field, "provided": "full_current_versions",
+                "versions": [{identifier: row[identifier], "revision": row["revision"]}
+                             for row in data[field]]}
+        for field, identifier in (("documents", "document_id"), ("materials", "material_id"))}
+    initial_information.update(
+        coverage={"content_path": "case.coverage", "provided": "source_declarations"},
+        checks={"content_path": "case.checks", "provided": "deterministic_summaries"},
+        known_material_ids=sorted({m["material_id"] for m in case.get("materials", [])}
+                                  | {link["material_id"] for link in case.get("material_links", [])}),
+        transaction_rows={"provided": False, "read_with": "query_transactions"})
     messages = [{"role": "system", "content": AGENT_SYSTEM},
                 {"role": "user", "content": canonical({"case": data,
+                    "initial_information": initial_information,
                     "available_material_ids": [m["material_id"] for m in case.get("materials", [])]})}]
     trace = attempt_trace if attempt_trace is not None else []
     rounds = 0
@@ -293,28 +458,45 @@ def model_stage(case, schema, evaluator, model, checks, mode, attempt_trace=None
         if not calls:
             break
         rounds += 1
-        if len(calls) > 2:
-            raise ModelError("模型单轮工具调用超出冻结预算，未执行本轮")
-        for call in calls:
+        for call_index, call in enumerate(calls):
             function = call.get("function", {})
             tool = function.get("name", "")
             start = perf_counter()
             args = {}
             try:
                 args = json.loads(function.get("arguments", "{}"))
+                if call_index >= 2:
+                    raise ValueError("模型单轮工具预算仅允许执行前2个调用，此调用未执行")
                 result = execute_tool(case, schema, evaluator, tool, args)
                 status = "completed"
             except (ValueError, KeyError, TypeError) as exc:
-                result = {"error": str(exc), "execution_status": "failed"}
+                result = {"error": "模型单轮工具预算仅允许执行前2个调用，此调用未执行" if call_index >= 2 else str(exc),
+                          "execution_status": "failed"}
                 status = "failed"
             trace.append({"tool": tool, "arguments": args, "result": result, "status": status,
+                          "tool_call_id": call["id"], "dispatch_status": "sent" if call_index < 2 else "not_sent",
                           "result_ref": "tool:" + tool + ":" + digest(args)[:20] if status == "completed" else None,
                           "raw_arguments": function.get("arguments"), "round": round_index + 1,
                           "duration_ms": round((perf_counter() - start) * 1000, 3), "purpose": "模型根据已见返回结果选择的追加核查"})
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": canonical({**result, "lead_basis_ref": trace[-1]["result_ref"] if tool != "read_schema" else None})})
-    messages.append({"role": "user", "content": "取证阶段已结束。请仅依据当前来源及实际工具返回，按规定JSON格式给出最终候选。取证阶段的文字是未验证草稿，不能作为证据；没有核实的事项保持未决。不得编造额外查询或修补失败工具结果。"})
-    return {"semantic": normalize_semantic(case, json_answer(model.complete(messages)), checks, trace, execution), "agent_trace": trace, "adaptive_rounds": rounds}
+        messages.append({"role": "user", "content": canonical({"read_scope_progress": read_scope_progress(case, trace),
+            "material_transaction_read_progress": material_transaction_read_progress(case, trace)})})
+    final_messages = [{"role": "system", "content": SEMANTIC_SYSTEM}]
+    for message in messages[1:]:
+        if message["role"] == "assistant":
+            if message.get("tool_calls"):
+                final_messages.append({"role": "assistant", "content": None,
+                                       "tool_calls": deepcopy(message["tool_calls"])})
+        else:
+            final_messages.append(deepcopy(message))
+    final_messages.append({"role": "user", "content": canonical({"transaction_observations": transaction_observations(trace),
+        "read_scope_progress": read_scope_progress(case, trace),
+        "material_transaction_read_progress": material_transaction_read_progress(case, trace)})})
+    final_messages.append({"role": "user", "content": "取证阶段已结束。请仅依据当前来源及实际工具返回，按规定JSON格式给出最终候选。没有核实的事项保持未决。不得编造额外查询或修补失败工具结果。"})
+    return {"semantic": normalize_support(case, json_answer(model.complete(final_messages)), checks, trace, execution),
+            "agent_trace": trace, "adaptive_rounds": rounds,
+            "material_transaction_read_progress": material_transaction_read_progress(case, trace)}
 
 
 class FlowState(TypedDict):
@@ -340,16 +522,25 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                  "dependency_lock_hash": digest((ROOT / "uv.lock").read_text()),
                  "model_endpoint": getattr(model, "config", {}).get("DEEPSEEK_BASE_URL"),
                  "model": getattr(model, "model", "rule-parser"), "max_rounds": 3, "tools_per_round": 2,
-                 "max_model_calls": 6, "max_output_tokens": 4096, "temperature": 0, "thinking": "disabled",
+                 "max_model_calls": 6, **deepcopy(GENERATION),
                  "tools": tool_definitions(), "extraction_prompt": EXTRACT_SYSTEM, "semantic_prompt": SEMANTIC_SYSTEM,
-                 "agent_prompt": AGENT_SYSTEM, "response_contracts": contract_schemas()}
+                 "response_prompt": RESPONSE_SYSTEM, "agent_prompt": AGENT_SYSTEM, "response_contracts": contract_schemas()}
     if mode == "fixed" and provider != "local":
         execution["fixed_policy"] = deepcopy(FIXED_POLICY)
     if mode == "agent":
         execution["agent_policy"] = "tool_review_then_single_json_final"
+        execution["tool_dispatch_policy"] = "ordered_first_two_per_round_with_explicit_rejections"
     if getattr(model, "execution_budget_spec", None) is not None:
         execution["evaluation_budget"] = deepcopy(model.execution_budget_spec)
-    evaluator = Evaluator(sources_for(case, schema, execution), previous, strategy)
+    response_context = response_input(case, schema)
+    response_execution = {k: deepcopy(execution[k]) for k in
+                          ("workflow", "prompt", "implementation_hash", "dependency_lock_hash", "provider", "model_endpoint", "model")}
+    response_execution.update(generation=deepcopy(GENERATION), response_prompt=RESPONSE_SYSTEM,
+                              response_contract=contract_schemas()["response"])
+    sources = sources_for(case, schema, execution)
+    sources.update({"source:response_context": {"hash": digest(response_context), "value": response_context},
+                    "source:response_execution": {"hash": digest(response_execution), "value": response_execution}})
+    evaluator = Evaluator(sources, previous, strategy)
     started = perf_counter()
     result = {"case_id": case["case_id"], "mode": mode, "provider": provider, "strategy": strategy,
               "features": [], "claims": [], "machine_claims": [], "claim_amendments": [], "superseded_machine_claims": [],
@@ -388,10 +579,10 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                 lambda: normalize_claims(case, extract_local(case) if provider == "local" else json_answer(model.complete([
                     {"role": "system", "content": EXTRACT_SYSTEM},
                     {"role": "user", "content": canonical({"document": narrative(case), "account": case["subject_account_id"],
-                      "start": case["coverage_start"], "end": case["coverage_end"]})}]))))
+                      "start": case["coverage_start"], "end": case["coverage_end"]})}], stage="extraction"))))
             result["machine_claims"] = [c for c in extraction["claims"] if c["kind"] in labels]
             effective = evaluator.evaluate("effective_claims", "apply_human_claims", {},
-                ["extraction", "source:claim_amendments", "source:documents", "source:entities", "source:metadata", "source:schema", "source:execution"],
+                ["extraction", "source:claim_amendments", "source:documents", "source:entities", "source:metadata", "source:schema", "source:execution", "source:review_scope"],
                 lambda: merge_claim_amendments(case, result["machine_claims"]))
             result["claims"] = effective["claims"]
             result["claim_amendments"] = effective["amendments"]
@@ -434,7 +625,7 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                                    reason='材料关系所指陈述已替换、撤销或不存在，须明确修订支持对象后重查')
                 return rows
             material_results = evaluator.evaluate("materials", "check_materials", {},
-                ["source:materials", "source:material_links", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution", "source:claim_amendments"]
+                ["source:materials", "source:material_links", "source:transactions", "source:coverage", "source:entities", "source:metadata", "source:schema", "source:execution", "source:claim_amendments", "source:alert", "source:review_scope"]
                     + (["effective_claims"] if "effective_claims" in evaluator.nodes else []),
                 check_bound_materials)
             result["material_results"] = material_results
@@ -470,7 +661,24 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                           [doc_evidence(case), focus_evidence(case, focus)])
             else:
                 attempt_trace = []
+                response_completed = False
                 try:
+                    response = evaluator.evaluate("response_stage", "response_review", {},
+                        ["source:response_context", "source:response_execution"],
+                        lambda: normalize_response(case, json_answer(model.complete([
+                            {"role": "system", "content": RESPONSE_SYSTEM},
+                            {"role": "user", "content": canonical(response_context)}]))))
+                    response_completed = True
+                    check("response", "原预警回应核验")
+                    for focus in response["focuses"]:
+                        focus = {**focus, "evidence": [doc_evidence(case, focus.get("quote", "")), focus_evidence(case, focus)]}
+                        upgraded = {f["focus_id"] for f in case.get("review_scope", {}).get("upgraded_leads", [])}
+                        result["semantic_results"].append({**focus, "type": "upgraded_lead" if focus["focus_id"] in upgraded else "alert_focus",
+                            "execution_status": "completed", "required": True,
+                            "object": {"account_id": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}})
+                        if focus["status"] != "addressed":
+                            issue("focus_not_addressed" if focus["status"] == "not_addressed" else "manual_focus",
+                                  "关注点未回应" if focus["status"] == "not_addressed" else "回应需人工判断", focus.get("reason", ""), "semantic:" + focus["focus_id"], focus["evidence"])
                     checks = {k: result[k] for k in ["features", "claims", "claim_results", "material_results", "issues"]}
                     fixed_trace = []
                     if mode == "fixed":
@@ -498,15 +706,7 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                     result["adaptive_rounds"] = 0 if stage_reused else stage["adaptive_rounds"]
                     result["replayed_adaptive_rounds"] = stage["adaptive_rounds"] if stage_reused else 0
                     result["agent_acceptance"] = "需跨任务人工审查路径与工具结果依赖；调用轮数不等于验收通过"
-                    check("semantic", "原预警回应核验")
-                    for focus in stage["semantic"]["focuses"]:
-                        upgraded = {f["focus_id"] for f in case.get("review_scope", {}).get("upgraded_leads", [])}
-                        result["semantic_results"].append({**focus, "type": "upgraded_lead" if focus["focus_id"] in upgraded else "alert_focus",
-                            "execution_status": "completed", "required": True,
-                            "object": {"account_id": case["subject_account_id"], "start": case["coverage_start"], "end": case["coverage_end"]}})
-                        if focus["status"] != "addressed":
-                            issue("focus_not_addressed" if focus["status"] == "not_addressed" else "manual_focus",
-                                  "关注点未回应" if focus["status"] == "not_addressed" else "回应需人工判断", focus.get("reason", ""), "semantic:" + focus["focus_id"], focus["evidence"])
+                    check("semantic", "解释支持与线索核验")
                     for gap in stage["semantic"]["gaps"]:
                         issue("unsupported_explanation", gap.get("title", "解释支持不足"), gap.get("reason", ""),
                               "gap:" + digest([gap["basis_kind"], gap["basis_ref"], gap["quote"]])[:16], gap["evidence"])
@@ -520,10 +720,23 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                         result["issues"][-1].update(lead_id=lead["lead_id"], model_draft=lead["model_draft"],
                                                     novelty_status="unconfirmed")
                 except ModelError as exc:
+                    if not response_completed:
+                        check("response", "原预警回应核验", "failed")
                     result["agent_trace"] = attempt_trace
                     result["adaptive_rounds"] = len({t["round"] for t in attempt_trace})
-                    check("semantic", "原预警回应核验", "failed")
+                    check("semantic", "解释支持与线索核验", "failed")
                     issue("execution_failed", "模型核验未完成", str(exc), "agent_stage", [])
+            progress = material_transaction_read_progress(case, result.get("fixed_policy_reads", []) + result.get("agent_trace", []))
+            result["material_transaction_read_progress"] = progress
+            if progress["entries"]:
+                pending = progress["pending_transaction_ids"]
+                check("material_transaction_refs", "材料显式交易引用读取", "pending" if pending else "completed")
+                if pending:
+                    issue("unread_material_transaction", "材料显式交易引用尚未读取",
+                          "尚未读取材料声明的交易ID：" + ", ".join(pending) + "；已验证结果保留，该必需检查未完成。",
+                          "material_transaction_refs", [{"type": "query_scope", "source": "materials",
+                              "material_ids": [m["material_id"] for m in case.get("materials", [])],
+                              "material_links": case.get("material_links", [])}])
         result["run_status"] = "partial" if any(c["status"] != "completed" for c in result["required_checks"]) else "completed"
         result["qc_recommendation"] = ("建议退回修订" if any(i["type"] in {"claim_error", "material_mismatch", "focus_not_addressed"} for i in result["issues"])
             else "建议补证" if any(i["type"] in {"unsupported_explanation", "material_insufficient", "insufficient_coverage", "claim_unresolved"} for i in result["issues"])
@@ -542,11 +755,12 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
     result["model_requests"] = list(getattr(model, "calls", []))
     usage_complete = all(isinstance(r.get("usage"), dict) and all(isinstance(r["usage"].get(k), int)
         for k in ["prompt_tokens", "completion_tokens"]) for r in result["model_requests"])
-    result["stats"] = {**evaluator.stats(), "tool_calls": sum(t["status"] == "computed" and t["tool"] not in {"extract_claims", "apply_human_claims", "semantic_review", "agent_stage"} for t in evaluator.trace),
-        "adaptive_tool_calls": sum(t["status"] != "reused" for t in agent_trace),
+    result["stats"] = {**evaluator.stats(), "tool_calls": sum(t["status"] == "computed" and t["tool"] not in {"extract_claims", "apply_human_claims", "response_review", "semantic_review", "agent_stage"} for t in evaluator.trace),
+        "adaptive_tool_calls": sum(t["status"] != "reused" and t.get("dispatch_status", "sent") == "sent" for t in agent_trace),
         "replayed_tool_calls": sum(t["status"] == "reused" for t in agent_trace),
         "adaptive_tools_completed": sum(t["status"] == "completed" for t in agent_trace),
-        "adaptive_tools_failed": sum(t["status"] == "failed" for t in agent_trace),
+        "adaptive_tools_failed": sum(t["status"] == "failed" and t.get("dispatch_status", "sent") == "sent" for t in agent_trace),
+        "adaptive_tools_rejected": sum(t["status"] == "failed" and t.get("dispatch_status", "sent") == "not_sent" for t in agent_trace),
         "model_calls": len(result["model_requests"]),
         "usage_complete": usage_complete,
         "input_tokens": sum((r.get("usage") or {}).get("prompt_tokens", 0) for r in result["model_requests"]) if usage_complete else None,
