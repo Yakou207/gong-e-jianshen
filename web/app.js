@@ -267,6 +267,9 @@ function sourcePanel() {
     const alert = typeof a === "string" ? a : first(a?.original_focus, a?.focus_text, a?.text, a?.description, a?.original_text, a?.focus, a?.focus_points);
     const alertText = typeof alert === "string" ? alert : alert ? json(alert) : a ? json(a) : "未提供原始预警。预警理由复核任务需补充预警后完成相关检查。";
     content.append(append(node("div", "source-block"), node("div", "field-caption", `原始预警${a?.alert_id ? ` · ${a.alert_id}` : ""}`), node("div", "alert-box", alertText)));
+    // Every focus the narrative must answer stays visible, not only the first one.
+    list(a?.focuses).filter(focus => focus.text && focus.text !== alert).forEach(focus =>
+      content.append(append(node("div", "source-block"), node("div", "field-caption", `预警关注点 · ${focus.focus_id}`), node("div", "alert-box", focus.text))));
     list(a?.focuses).filter(focus => list(focus.response_requirements).length).forEach(focus => content.append(responseRequirementsBlock(focus)));
     const upgraded = list(p.review_scope?.upgraded_leads);
     upgraded.forEach(focus => {
