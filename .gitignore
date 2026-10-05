@@ -49,6 +49,8 @@
 !/scripts/validate_evaluation.py
 !/scripts/score_evaluation.py
 !/scripts/run_evaluation.py
+!/scripts/generate_heldout.py
+!/scripts/score_heldout.py
 
 !/tests/
 !/tests/test_*.py

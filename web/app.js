@@ -167,6 +167,8 @@ function setView(view) {
   $("#view-label").textContent = { tasks: "质检任务", workspace: "质检工作区", delivery: "重查与交付" }[view];
   if (view !== "tasks") renderDetail();
   if (changed) window.scrollTo({ top: 0, behavior: "instant" });
+  const hash = view !== "tasks" && state.caseId ? `#${view}/${encodeURIComponent(state.caseId)}` : "#tasks";
+  if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 async function loadCase(caseId, view = state.view) {
   if (state.busy) return;
@@ -340,6 +342,21 @@ function evidenceTitle(reference, index = 0) {
   if (reference?.type === "upgraded_focus") return `人工升级关注点 · ${compact(reference.focus_id)}`;
   return first(reference?.transaction_id, reference?.material_id, reference?.document_id, reference?.query_id, reference?.query_scope_id, reference?.node_id, reference?.ref, reference?.type, `证据 ${index + 1}`);
 }
+function claimComparisonText(issue) {
+  // Plain-language discrepancy for a contradicted/unresolved fact, from the deterministic comparison only.
+  if (!String(issue.target_id || "").startsWith("claim:")) return null;
+  const result = list(run().claim_results).find(item => "claim:" + item.claim_id === issue.target_id);
+  const c = result?.comparison;
+  if (!c) return null;
+  const scope = result.coverage?.status === "full" ? "完整流水" : "现有可见流水";
+  if (c.unit === "transactions") return `理由陈述 ${c.expected} 笔；${scope}核得 ${c.actual} 笔。`;
+  if (c.unit === "CNY_fen") return `理由陈述合计 ${(c.expected / 100).toFixed(2)} 元；${scope}核得 ${(c.actual / 100).toFixed(2)} 元（整数分计算）。`;
+  const names = Object.fromEntries(list(state.detail?.package?.counterparties).map(p => [p.counterparty_token, p.display_name_masked || p.counterparty_token]));
+  const show = tokens => tokens.map(t => names[t] || t).join("、") || "无";
+  if (Array.isArray(c.expected)) return `理由陈述对手：${show(c.expected)}；${scope}实际对手：${show(c.actual)}。`;
+  if ("inside_count" in c) return `陈述期间内 ${c.inside_count} 笔，期间外 ${c.outside_count} 笔（${scope}）。`;
+  return null;
+}
 function resultPanel() {
   const body = node("div", "section-body");
   if (!run().run_id) { body.append(empty("等待开始质检", "运行固定流程或已配置的 DeepSeek Agent，候选与证据将显示在这里。")); return panel("问题与证据", "尚未运行", body); }
@@ -349,7 +366,7 @@ function resultPanel() {
   const ordinaryIssues = issues().filter(issue => issue.type !== "new_lead");
   ordinaryIssues.forEach((issue, index) => {
     const item = node("article", `issue-card ${state.reviewTarget === issue.issue_id ? "selected" : ""}`);
-    append(item, append(node("div", "issue-top"), badge(issue.type || "待核实问题"), node("span", "issue-number", `#${String(index + 1).padStart(2, "0")}`)), node("h3", "", issue.title || label(issue.type)), node("p", "issue-description", label(first(issue.description, issue.reason, "请结合引用证据人工核对。"))), evidenceLinks(issue.evidence));
+    append(item, append(node("div", "issue-top"), badge(issue.type || "待核实问题"), node("span", "issue-number", `#${String(index + 1).padStart(2, "0")}`)), node("h3", "", issue.title || label(issue.type)), node("p", "issue-description", claimComparisonText(issue) || label(first(issue.description, issue.reason, "请结合引用证据人工核对。"))), evidenceLinks(issue.evidence));
     if (issue.type === "unsupported_explanation") item.append(node("p", "review-disclaimer", "模型候选，需人工核对。材料字段是否对应与解释的支持依据是否充分，须分别判断；确定性核验结果见下方明细。"));
     const decision = !isStale() ? [...reviews()].reverse().find(event => event.target_id === issue.issue_id && event.snapshot_id === run().snapshot_id) : null;
     const resolutionLabel = issue.type === "manual_extraction" && decision?.resolution === "addressed" ? "抽取已核对" : label(decision?.resolution);
@@ -1175,4 +1192,7 @@ $("#task-search").addEventListener("input", renderTasks);
 $("#task-filter").addEventListener("change", renderTasks);
 document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
 $(".brand").addEventListener("click", event => { event.preventDefault(); setView("tasks"); });
+// Shareable deep link: #workspace/<case_id> or #delivery/<case_id>.
+const [linkedView, linkedCase] = location.hash.slice(1).split("/");
+if (linkedCase && ["workspace", "delivery"].includes(linkedView)) { state.caseId = decodeURIComponent(linkedCase); state.view = linkedView; }
 refresh();

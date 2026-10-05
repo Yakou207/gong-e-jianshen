@@ -537,7 +537,11 @@ def run_review(case, *, mode="fixed", provider="local", strategy="full", previou
                           ("workflow", "prompt", "implementation_hash", "dependency_lock_hash", "provider", "model_endpoint", "model")}
     response_execution.update(generation=deepcopy(GENERATION), response_prompt=RESPONSE_SYSTEM,
                               response_contract=contract_schemas()["response"])
-    sources = sources_for(case, schema, execution)
+    # Spec §7.3: the shared-ledger snapshot is volatile run accounting, not a business
+    # input; it stays in the recorded execution but never enters the fingerprint.
+    fingerprint_execution = deepcopy(execution)
+    fingerprint_execution.get("evaluation_budget", {}).pop("initial_shared_ledger", None)
+    sources = sources_for(case, schema, fingerprint_execution)
     sources.update({"source:response_context": {"hash": digest(response_context), "value": response_context},
                     "source:response_execution": {"hash": digest(response_execution), "value": response_execution}})
     evaluator = Evaluator(sources, previous, strategy)
