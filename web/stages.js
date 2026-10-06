@@ -145,13 +145,8 @@ function consolePanel(sessions) {
   const events = state.live?.case === state.caseId ? state.live.events : sessions.flatMap(sessionEvents);
   if (!events.length) stream.append(empty("还没有研判记录", ready ? "点击“开始研判”，Agent 会先读预警和规则检验结果，再决定查什么。" : "未配置 DeepSeek API Key：可在 .env 配置后重启工作台。"));
   renderEvents(stream, events);
-  const composer = node("form", "composer");
-  const input = node("textarea"); input.rows = 2; input.placeholder = ready ? "追问 Agent，例如：转给丑设备的那笔是什么时间？占转出多少？" : "配置 API Key 后可追问";
-  input.disabled = !ready || state.streaming; input.maxLength = 500;
-  const send = Object.assign(button("发送", "primary small"), { type: "submit", disabled: !ready || state.streaming });
-  input.addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) composer.requestSubmit(); });
-  composer.addEventListener("submit", e => { e.preventDefault(); if (input.value.trim()) startChat(input.value.trim()); });
-  append(composer, input, send);
+  const composer = append(node("div", "composer"), node("span", "muted", "对研判结果有疑问？"),
+    button("✦ 向 AML 助手追问", "secondary small", () => toggleAssistant(true, "这个案件 AI 为什么给出这个结论？依据是什么？")));
   const spend = status.spent_cny !== undefined ? node("small", "console-foot", `本机工作台累计 API 费用约 ${Number(status.spent_cny).toFixed(3)} 元 / 上限 ${status.cap_cny} 元（按高峰价估算）`) : null;
   return append(element, head, stream, composer, spend);
 }

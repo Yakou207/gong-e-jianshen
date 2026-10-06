@@ -1204,4 +1204,13 @@ if (linkedCase && ["workspace", "delivery"].includes(linkedView)) {
   state.caseId = decodeURIComponent(linkedCase); state.view = "workspace";
   state.stage = linkedView === "delivery" ? "review" : linkedStage || state.stage;
 }
+window.addEventListener("hashchange", () => {
+  const [view, caseId, stage] = location.hash.slice(1).split("/");
+  if (view === "tasks") { if (state.view !== "tasks") setView("tasks"); return; }
+  if (caseId && ["workspace", "delivery"].includes(view)) {
+    const target = decodeURIComponent(caseId), nextStage = view === "delivery" ? "review" : stage || state.stage;
+    if (target !== state.caseId || state.view !== "workspace") { state.stage = nextStage; loadCase(target, "workspace"); }
+    else if (nextStage !== state.stage) setStage(nextStage);
+  }
+});
 refresh();

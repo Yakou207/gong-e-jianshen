@@ -43,6 +43,10 @@
 !/config/prompts/inv-1.1/*.txt
 !/config/prompts/inv-1.2/
 !/config/prompts/inv-1.2/*.txt
+!/config/prompts/assistant-1.0/
+!/config/prompts/assistant-1.0/*.txt
+!/config/help/
+!/config/help/*.txt
 
 !/data/
 !/data/synthetic/
@@ -53,6 +57,7 @@
 !/web/app.js
 !/web/style.css
 !/web/stages.js
+!/web/assistant.js
 
 !/scripts/
 !/scripts/export_case.py

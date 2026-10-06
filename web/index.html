@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>工e鉴审 · 反洗钱智能甄别工作台</title>
-  <link rel="stylesheet" href="/style.css?v=2.0.1">
-  <script src="/app.js?v=2.0.1" defer></script>
-  <script src="/stages.js?v=2.0.1" defer></script>
+  <link rel="stylesheet" href="/style.css?v=2.1.2">
+  <script src="/app.js?v=2.1.2" defer></script>
+  <script src="/stages.js?v=2.1.2" defer></script>
+  <script src="/assistant.js?v=2.1.2" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -25,7 +26,7 @@
     <div class="app-main">
       <header class="topbar">
         <div class="breadcrumb">工行杯 / 金融安全服务<span>/</span><strong id="view-label">质检任务</strong></div>
-        <div class="topbar-right"><span id="connection-status" class="connection"><i></i>正在连接本地服务</span><span class="environment">SYNTHETIC ONLY</span></div>
+        <div class="topbar-right"><button class="button secondary small assistant-top" id="assistant-toggle" type="button" title="⌘/Ctrl+J"><span class="assistant-mark">✦</span> AML 助手</button><span id="connection-status" class="connection"><i></i>正在连接本地服务</span><span class="environment">SYNTHETIC ONLY</span></div>
       </header>
       <main id="main" tabindex="-1">
         <div id="notice" role="status" aria-live="polite" hidden></div>
