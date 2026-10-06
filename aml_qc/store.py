@@ -116,6 +116,8 @@ class Store:
                 case_id TEXT NOT NULL, payload TEXT NOT NULL, previous_hash TEXT NOT NULL, event_hash TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS migration_previews (preview_id TEXT PRIMARY KEY,
                 payload TEXT NOT NULL, payload_hash TEXT NOT NULL, created_at TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS agent_sessions (session_id TEXT PRIMARY KEY, case_id TEXT NOT NULL,
+                source_hash TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS migration_receipts (preview_id TEXT NOT NULL, case_id TEXT NOT NULL,
                 payload TEXT NOT NULL, receipt_hash TEXT NOT NULL, created_at TEXT NOT NULL,
                 PRIMARY KEY(preview_id,case_id));
@@ -177,7 +179,10 @@ class Store:
                          "qc_recommendation": run.get("qc_recommendation", "未运行"),
                          "review_status": item["review_status"], "stale": item["stale"],
                          "schema_version": item["package"]["schema_version"], "schema_hash": digest(item["package"]["schema"]),
-                         "coverage_summary": check_coverage(item["package"])["status"]})
+                         "coverage_summary": check_coverage(item["package"])["status"],
+                         "ai_recommendation": ((item["agent"]["latest_investigation"] or {}).get("verdict") or {}).get("recommendation"),
+                         "ai_stale": bool((item["agent"]["latest_investigation"] or {}).get("stale")),
+                         "human_decision": (item["agent"]["latest_decision"] or {}).get("action")})
         return rows
 
     def get(self, case_id):
@@ -279,7 +284,59 @@ class Store:
                 "governed_fee_history": governed_fee_history,
                 "lead_dispositions": leads,
                 "claim_proposals": proposals, "claim_amendments": (run or {}).get("claim_amendments", []),
-                "annotation_pending": label_pending, "annotation_pending_count": len(label_pending)}
+                "annotation_pending": label_pending, "annotation_pending_count": len(label_pending),
+                "agent": self._agent_summary(case_id, row["source_hash"], events)}
+
+    # AI 研判 sessions: append-only records; a human adopts, revises or rejects a draft through a hash-chained event.
+    VERDICT_ACTIONS = {"adopt": "采纳研判草稿", "revise": "修改后采纳", "reject": "驳回研判草稿"}
+
+    def save_session(self, case_id, source_hash, session):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM sources WHERE source_hash=? AND case_id=?", (source_hash, case_id)).fetchone():
+                raise ValueError("研判来源不属于当前案件")
+            db.execute("INSERT INTO agent_sessions VALUES (?,?,?,?,?,?)", (session["session_id"], case_id, source_hash,
+                       session["kind"], canonical(session), now()))
+        return session
+
+    def sessions(self, case_id):
+        with self.connect() as db:
+            current = db.execute("SELECT source_hash FROM cases WHERE case_id=?", (case_id,)).fetchone()
+            if not current:
+                raise KeyError("案例不存在")
+            rows = db.execute("SELECT payload, source_hash, created_at FROM agent_sessions WHERE case_id=? ORDER BY created_at, rowid",
+                              (case_id,)).fetchall()
+        return [{**json.loads(r["payload"]), "source_hash": r["source_hash"], "created_at": r["created_at"],
+                 "stale": r["source_hash"] != current[0]} for r in rows]
+
+    def _agent_summary(self, case_id, source_hash, events):
+        sessions = self.sessions(case_id)
+        reviews = [e for e in events if str(e.get("target_id", "")).startswith("verdict:")]
+        latest = next((s for s in reversed(sessions) if s["kind"] == "investigation"), None)
+        decision = next((e for e in reversed(reviews) if latest and e["target_id"] == "verdict:" + latest["session_id"]), None)
+        return {"session_count": len(sessions), "chat_count": sum(s["kind"] == "chat" for s in sessions),
+                "latest_investigation": {k: latest.get(k) for k in ("session_id", "status", "verdict", "errors", "warnings",
+                                         "policy_flags", "stats", "stale", "created_at", "model", "replayed_from")} if latest else None,
+                "latest_decision": decision, "verdict_reviews": reviews}
+
+    def review_verdict(self, case_id, *, session_id, action, reason, actor, recommendation=None, opinion=None):
+        if action not in self.VERDICT_ACTIONS or not reason.strip():
+            raise ValueError("请选择采纳、修改或驳回，并填写理由")
+        session = next((s for s in self.sessions(case_id) if s["session_id"] == session_id and s["kind"] == "investigation"), None)
+        if session is None or not session.get("verdict"):
+            raise ValueError("研判记录不存在或没有可复核的草稿")
+        if session["stale"]:
+            raise ValueError("案件资料已更新，该研判已过期，请重新研判后再复核")
+        if action == "revise" and recommendation not in {"report_suspicious", "exclude", "insufficient_evidence"}:
+            raise ValueError("修改后采纳须给出最终研判结论")
+        final = recommendation if action == "revise" else session["verdict"]["recommendation"] if action == "adopt" else None
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            event = self._event(db, case_id, {"action": "verdict_" + action, "target_id": "verdict:" + session_id,
+                "actor": actor, "reason": reason.strip(), "source_hash": session["source_hash"],
+                "ai_recommendation": session["verdict"]["recommendation"], "final_recommendation": final,
+                "final_opinion": opinion})
+        return event
 
     def change_source(self, case_id, package, reason, *, actor="operator", context=None):
         if not reason.strip() or not actor.strip():

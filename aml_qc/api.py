@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from . import agent_api
 from .depgraph import canonical
 from .ingest import load_case
 from .llm import GENERATION, settings
@@ -234,6 +235,8 @@ def create_app(db_path=None, seed=True, paid_runner=None):
     def export(case_id: str):
         return Response(canonical(store.export(case_id)), media_type="application/json",
                         headers={"Content-Disposition": 'attachment; filename="gong-e-qc-audit.json"'})
+
+    agent_api.register(app, store)
 
     @app.get("/")
     def index():

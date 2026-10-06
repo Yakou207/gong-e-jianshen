@@ -1,5 +1,5 @@
-# Publish only the runnable product and its regression tests.
-# Research, proposals, review records and Markdown stay local.
+# Publish the runnable product, its tests, the root README and its screenshots.
+# Research notes, proposals, review records, runtime data and other Markdown stay local.
 *
 !/.gitignore
 !/.env.example
@@ -33,6 +33,14 @@
 !/config/prompts/v2.24/*.txt
 !/config/prompts/b0-v1/
 !/config/prompts/b0-v1/*.txt
+!/config/prompts/v3.0/
+!/config/prompts/v3.0/*.txt
+!/config/prompts/inv-1.0/
+!/config/prompts/inv-1.0/*.txt
+!/config/prompts/inv-1.1/
+!/config/prompts/inv-1.1/*.txt
+!/config/prompts/inv-1.2/
+!/config/prompts/inv-1.2/*.txt
 
 !/data/
 !/data/synthetic/
@@ -42,6 +50,7 @@
 !/web/index.html
 !/web/app.js
 !/web/style.css
+!/web/stages.js
 
 !/scripts/
 !/scripts/export_case.py
@@ -51,6 +60,12 @@
 !/scripts/run_evaluation.py
 !/scripts/generate_heldout.py
 !/scripts/score_heldout.py
+!/scripts/generate_investigation_benchmark.py
+!/scripts/score_investigation.py
+
+!/docs/
+!/docs/images/
+!/docs/images/*.png
 
 !/tests/
 !/tests/test_*.py
@@ -61,6 +76,7 @@
 **/*.[mM][dD]
 **/*.[mM][aA][rR][kK][dD][oO][wW][nN]
 **/[Rr][Ee][Aa][Dd][Mm][Ee]*
+!/README.md
 **/.env
 **/.env.*
 !/.env.example

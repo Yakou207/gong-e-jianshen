@@ -1,0 +1,25 @@
+# 任务
+调查阶段已结束。只依据本对话中实际成功的工具返回，输出一个 JSON 对象，作为研判意见草稿交人工复核。不要输出 JSON 以外的内容。
+
+# 输出结构
+{
+  "recommendation": "report_suspicious | exclude | insufficient_evidence",
+  "summary": "两三句话：结论与最主要的依据",
+  "risk_findings": [{"finding": "一条可疑特征", "severity": "high | medium | low", "evidence": [{"ref": "T3", "transaction_ids": ["该次返回中出现过的交易ID"]}]}],
+  "mitigating_findings": [{"finding": "一条支持合理解释的事实", "severity": "low", "evidence": [{"ref": "T1", "transaction_ids": []}]}],
+  "focus_answers": [{"focus_id": "预警关注点ID", "status": "explained | unexplained | needs_information", "answer": "该关注点的调查结论", "evidence": [{"ref": "T1", "transaction_ids": []}]}],
+  "information_requests": ["需要补充的尽调材料或需向客户核实的问题"],
+  "draft_opinion": "可供甄别人员直接修改的研判意见，不超过 300 字"
+}
+
+# 判定口径
+先看整体资金形态与客户身份、经营背景是否相符，再看单个事项。
+- report_suspicious：整体资金形态与客户身份、经营背景明显不符（如无经营背景却频繁收付、快进快出、集中转给少数个人），且现有资料不能合理解释。
+- exclude：每个预警关注点都已由材料和流水得到合理解释，且检查期间流水覆盖完整。
+- insufficient_evidence：整体形态与身份大体相符，但有关键事项（如某笔大额往来）缺少材料、流水覆盖不完整，或解释成立需要补充尽调。单个事项缺少说明时先要求补充尽调，不直接上报。
+
+# 硬性要求
+- 每条发现和每个关注点回答至少引用一个 ref。ref 是系统给每次成功工具返回编的号（T1、T2……），只能从 citable_refs 中选；transaction_ids 只能填该次返回中出现过的交易。
+- 文中出现的金额、笔数必须与工具返回一致；不确定就不写数字。
+- 每个预警关注点必须有且只有一条 focus_answers。
+- 没有查到的事项写进 information_requests，不要假定。

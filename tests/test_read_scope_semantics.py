@@ -54,7 +54,7 @@ def test_actual_partial_query_progress_measures_reads_without_assigning_narrativ
     assert {row["transaction_id"] for observation in observations for row in observation["rows"]} == set(incoming + outgoing)
     assert all(observation["coverage"]["status"] == "partial" for observation in observations)
     assert any(issue["type"] == "insufficient_coverage" for issue in result["issues"])
-    assert "输出前的集合核对" in wire["messages"][0]["content"]
+    assert "先确定被解释的记录集合" in wire["messages"][0]["content"]
     assert wire["messages"][0]["content"] == workflow.SEMANTIC_SYSTEM
     for call in [row["request"] for row in model.calls if row["request"].get("tools")][1:]:
         feedback = json.loads(call["messages"][-1]["content"])

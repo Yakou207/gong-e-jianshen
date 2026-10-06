@@ -173,7 +173,7 @@ def experiment(tmp_path):
             "dependency_lock": file_ref(tmp_path, ROOT / "uv.lock"),
             "scorer": file_ref(tmp_path, ROOT / "scripts/score_evaluation.py"),
             "tools": [file_ref(tmp_path, ROOT / name) for name in IMPLEMENTATIONS],
-            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v2.24").glob("*.txt"))]
+            "prompts": [file_ref(tmp_path, path) for path in sorted((ROOT / "config/prompts/v3.0").glob("*.txt"))]
                        + [file_ref(tmp_path, ROOT / "config/prompts/b0-v1/direct.txt")],
             "family_grouping": json_ref(tmp_path, "grouping.json", {"reviewed_by": [people[0]], "cases": [
                 {"case_id": case["case_id"], "economic_group": case["case_family"], "split": "test",

@@ -21,9 +21,9 @@ from .llm import GENERATION, DeepSeek, ModelError, json_answer
 from .leads import lead_basis, lead_has_disposition, normalize_leads
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "workflow-2.16"
-PROMPT_VERSION = "claims-response-2.24"
-PROMPT_ROOT = ROOT / "config/prompts/v2.24"
+VERSION = "workflow-3.0"
+PROMPT_VERSION = "claims-response-3.0"
+PROMPT_ROOT = ROOT / "config/prompts/v3.0"
 FIXED_POLICY = {"version": "fixed-visible-scope-1", "steps": ["check_coverage", "query_transactions"],
                 "scope": "entire visible case interval, all directions and counterparties",
                 "applies_when": "model semantic review is required"}

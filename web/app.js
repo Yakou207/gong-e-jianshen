@@ -153,21 +153,24 @@ function renderTasks() {
   $("#task-rows").replaceChildren(...filtered.map(item => {
     const row = node("tr");
     const identity = append(node("td"), node("span", "case-name", item.title || item.case_id), node("span", "case-id", item.case_id), node("span", "task-type", label(item.task_mode)));
-    append(row, identity, append(node("td"), node("span", "version-label", compact(item.data_version))), append(node("td"), badge(item.run_status || "not_started")), append(node("td"), badge(item.qc_recommendation || "pending")), append(node("td"), badge(item.review_status || "pending", "review")), append(node("td"), badge(coverLabel(first(item.coverage_summary, item.coverage, item.completeness)), "coverage")), append(node("td"), button("审查 →", "text", () => loadCase(item.case_id, "workspace"))));
+    const ai = item.ai_recommendation ? { report_suspicious: ["建议上报", "red"], exclude: ["建议排除", "green"], insufficient_evidence: ["需补充尽调", "amber"] }[item.ai_recommendation] : null;
+    const aiCell = append(node("td"), ai ? node("span", `badge ${item.ai_stale ? "" : ai[1]}`, (item.ai_stale ? "已过期 · " : "") + ai[0] + (item.human_decision ? " · 已人工决定" : "")) : node("span", "badge", "未研判"));
+    append(row, identity, append(node("td"), node("span", "version-label", compact(item.data_version))), aiCell, append(node("td"), badge(item.run_status || "not_started")), append(node("td"), badge(item.qc_recommendation || "pending")), append(node("td"), badge(item.review_status || "pending", "review")), append(node("td"), badge(coverLabel(first(item.coverage_summary, item.coverage, item.completeness)), "coverage")), append(node("td"), button("审查 →", "text", () => loadCase(item.case_id, "workspace"))));
     return row;
   }));
   const blank = $("#task-empty"); blank.hidden = filtered.length > 0;
   if (!filtered.length) blank.replaceChildren(node("strong", "", state.cases.length ? "没有匹配的任务" : "还没有可审查的案件"), node("p", "", state.cases.length ? "试试其他名称、编号或处理状态。" : "导入合成案件包，或检查本地服务是否已加载种子案例。"));
 }
 function setView(view) {
+  if (view === "delivery") { state.stage = "review"; view = "workspace"; }
   const changed = state.view !== view;
   state.view = view;
   document.querySelectorAll(".view").forEach(element => { element.hidden = element.id !== `view-${view}`; });
   document.querySelectorAll(".nav-item").forEach(element => { element.classList.toggle("active", element.dataset.view === view); element.setAttribute("aria-current", element.dataset.view === view ? "page" : "false"); });
-  $("#view-label").textContent = { tasks: "质检任务", workspace: "质检工作区", delivery: "重查与交付" }[view];
+  $("#view-label").textContent = { tasks: "案件列表", workspace: "甄别工作台" }[view];
   if (view !== "tasks") renderDetail();
   if (changed) window.scrollTo({ top: 0, behavior: "instant" });
-  const hash = view !== "tasks" && state.caseId ? `#${view}/${encodeURIComponent(state.caseId)}` : "#tasks";
+  const hash = view !== "tasks" && state.caseId ? `#${view}/${encodeURIComponent(state.caseId)}/${state.stage}` : "#tasks";
   if (location.hash !== hash) history.replaceState(null, "", hash);
 }
 async function loadCase(caseId, view = state.view) {
@@ -214,11 +217,10 @@ function statusStrip() {
   return append(node("div", "status-strip"), ...[["执行状态", s.run_status], ["质检建议", s.qc_recommendation], ["人工处理", s.review_status]].map(([title, value]) => append(node("div", "status-cell"), node("span", "", title), badge(value, title === "人工处理" ? "review" : ""))));
 }
 function renderDetail() {
-  const target = state.view === "delivery" ? $("#delivery-content") : $("#workspace-content");
-  if (!state.detail) { target.replaceChildren(empty("选择一个质检任务", "从任务队列打开案件，查看来源、质检证据与人工记录。", button("前往任务队列", "primary", () => setView("tasks")))); return; }
-  target.replaceChildren(caseHeading(state.view === "delivery"), statusStrip());
-  if (isStale()) target.append(node("div", "stale-banner", `↻ ${state.detail?.engine_changed ? "执行代码已变化" : "来源已变化"}，以下旧运行结果仅供历史参考。请按当前来源与执行版本重查，并对受影响的人工记录重新确认；旧结果不能代表当前检查已通过。`));
-  if (state.view === "delivery") renderDelivery(target); else renderWorkbench(target);
+  const target = $("#workspace-content");
+  if (!state.detail) { target.replaceChildren(empty("选择一个案件", "从案件列表打开案件，按五个阶段完成资料接入、规则检验、AI 研判、理由质检与复核归档。", button("前往案件列表", "primary", () => setView("tasks")))); return; }
+  target.replaceChildren(caseHeading(), stageNav());
+  renderStage(target);
 }
 function documents() {
   const p = pkg();
@@ -1195,7 +1197,11 @@ $("#task-search").addEventListener("input", renderTasks);
 $("#task-filter").addEventListener("change", renderTasks);
 document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => setView(item.dataset.view)));
 $(".brand").addEventListener("click", event => { event.preventDefault(); setView("tasks"); });
-// Shareable deep link: #workspace/<case_id> or #delivery/<case_id>.
-const [linkedView, linkedCase] = location.hash.slice(1).split("/");
-if (linkedCase && ["workspace", "delivery"].includes(linkedView)) { state.caseId = decodeURIComponent(linkedCase); state.view = linkedView; }
+$("#intake-button").addEventListener("click", () => openIntake());
+// Shareable deep link: #workspace/<case_id>[/<stage>] or #delivery/<case_id>.
+const [linkedView, linkedCase, linkedStage] = location.hash.slice(1).split("/");
+if (linkedCase && ["workspace", "delivery"].includes(linkedView)) {
+  state.caseId = decodeURIComponent(linkedCase); state.view = "workspace";
+  state.stage = linkedView === "delivery" ? "review" : linkedStage || state.stage;
+}
 refresh();
