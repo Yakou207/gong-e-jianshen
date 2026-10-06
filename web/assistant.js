@@ -37,7 +37,7 @@ function renderAssistant() {
   if (!assistantState.turns.length && !assistantState.live) {
     body.append(append(node("div", "assistant-welcome"),
       node("p", "", "我是工e鉴审的反洗钱助手。可以帮你使用工作台（打开案件、跳到阶段、解释功能），也可以在你打开的案件上查流水、解释 AI 研判和质检问题。我只给建议，决定由你在界面上提交。"),
-      append(node("div", "assistant-chips"), ...(ctx.case_id ? SUGGESTIONS.case : SUGGESTIONS.tasks).map(text => button(text, "chip", () => sendAssistant(text))))));
+      ready ? append(node("div", "assistant-chips"), ...(ctx.case_id ? SUGGESTIONS.case : SUGGESTIONS.tasks).map(text => button(text, "chip", () => sendAssistant(text)))) : null));
     if (!ready) body.append(helpFallback());
   }
   assistantState.turns.forEach(turn => body.append(renderTurn(turn.events)));
