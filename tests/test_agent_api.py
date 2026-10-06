@@ -82,3 +82,8 @@ def test_chat_and_intake_and_rules(tmp_path, monkeypatch):
     assert rules["flow_profile"]["outflow"]["amount"] == "1050.00" and {f["feature_code"] for f in rules["features"]} == {"F1", "F2"}
     status = c.get("/api/agent/status").json()
     assert status["limits"]["tools_per_round"] == 3
+
+
+def test_review_app_starts_without_seed_cases(tmp_path, monkeypatch):
+    monkeypatch.setenv("AML_QC_DB", str(tmp_path / "review.sqlite3"))
+    assert TestClient(agent_api.review_app()).get("/api/cases").json()["cases"] == []

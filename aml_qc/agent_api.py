@@ -257,3 +257,9 @@ def register(app, store):
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from None
         return store.get(case_id)
+
+
+def review_app():
+    """uvicorn --factory aml_qc.agent_api:review_app — the workbench without the bundled seed cases (review packs)."""
+    from .api import create_app
+    return create_app(seed=False)
