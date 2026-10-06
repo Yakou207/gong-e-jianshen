@@ -32,3 +32,4 @@
 .small-editor{min-height:110px}
 @media(max-width:1100px){.agent-grid,.two-col{grid-template-columns:1fr}.stage-nav{grid-template-columns:repeat(3,minmax(0,1fr))}.console{height:auto;min-height:480px}}
 @media(max-width:680px){.stage-nav{grid-template-columns:1fr 1fr}}
+.console-stream>*{flex-shrink:0}

@@ -130,7 +130,7 @@ function renderAgent(target) {
   if (!sessions) { target.append(append(node("div", "panel"), append(node("div", "section-body"), node("div", "loading-indicator")))); loadSessions(); return; }
   const grid = append(node("div", "agent-grid"), consolePanel(sessions), verdictPanel(sessions));
   target.append(grid);
-  const scroller = $(".console-stream", target); if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  const scroller = $(".console-stream", target); if (scroller && state.streaming) scroller.scrollTop = scroller.scrollHeight;
 }
 function consolePanel(sessions) {
   const status = state.agentStatus || {};

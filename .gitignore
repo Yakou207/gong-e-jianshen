@@ -35,6 +35,8 @@
 !/config/prompts/b0-v1/*.txt
 !/config/prompts/v3.0/
 !/config/prompts/v3.0/*.txt
+!/config/prompts/v3.1/
+!/config/prompts/v3.1/*.txt
 !/config/prompts/inv-1.0/
 !/config/prompts/inv-1.0/*.txt
 !/config/prompts/inv-1.1/
