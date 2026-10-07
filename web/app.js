@@ -158,13 +158,22 @@ function triage(item) {
 }
 function renderTasks() {
   $("#nav-count").textContent = state.cases.length;
-  const counts = [
-    ["当前合成任务", state.cases.length, "按实际导入案件统计", "▦", false],
-    ["待人工处理", state.cases.filter(item => !completedReviews.includes(item.review_status)).length, "问题确认与最终裁决分别记录", "◎", true],
-    ["需要重新复核", state.cases.filter(item => outdatedReviews.includes(item.review_status) || item.stale || item.needs_recheck).length, "来源变化后保留原人工记录", "↻", false],
-    ["人工已确认完成", state.cases.filter(item => completedReviews.includes(item.review_status)).length, "仅限已完成的当前检查范围", "✓", false],
+  const ranks = state.cases.map(item => triage(item)[0]);
+  const recheck = state.cases.filter(item => outdatedReviews.includes(item.review_status) || item.stale || item.needs_recheck).length;
+  const cards = [
+    ["all", "预警总数", state.cases.length, recheck ? `其中 ${recheck} 件来源变化需重新复核` : "按导入案件统计", ""],
+    ["deep", "优先深挖", ranks.filter(r => r <= 1).length, "AI 建议上报，或理由与流水不符", "red"],
+    ["evidence", "补充尽调", ranks.filter(r => r === 2).length, "证据或流水不足，先补材料", "amber"],
+    ["close", "可快速关闭", ranks.filter(r => r === 4).length, "AI 建议排除且资料完整，仍须人工确认", "green"],
   ];
-  $("#task-summary").replaceChildren(...counts.map(([name, count, subtitle, symbol, accent]) => append(node("div", `summary-card ${accent ? "accent" : ""}`), node("div", "summary-label", name), node("div", "summary-value", count), node("small", "", subtitle), node("span", "summary-mark", symbol))));
+  state.triageFilter = state.triageFilter || "all";
+  $("#task-summary").replaceChildren(...cards.map(([key, name, count, subtitle, tone]) => {
+    const card = append(node("button", `summary-card triage-card ${tone} ${key !== "all" && state.triageFilter === key ? "selected" : ""}`), node("div", "summary-label", name), node("div", "summary-value", count), node("small", "", subtitle));
+    card.type = "button"; card.setAttribute("aria-pressed", String(state.triageFilter === key));
+    card.addEventListener("click", () => { state.triageFilter = state.triageFilter === key ? "all" : key; renderTasks(); });
+    return card;
+  }));
+  const inTriage = item => { const r = triage(item)[0]; return { all: true, deep: r <= 1, evidence: r === 2, close: r === 4 }[state.triageFilter]; };
   const query = $("#task-search").value.toLowerCase().trim();
   const filter = $("#task-filter").value;
   const filtered = state.cases.filter(item => {
@@ -172,7 +181,7 @@ function renderTasks() {
     const reviewState = item.review_status || "pending";
     const complete = completedReviews.includes(reviewState);
     const stale = outdatedReviews.includes(reviewState) || item.stale || item.needs_recheck;
-    return matchesText && (filter === "all" || (filter === "completed" && complete) || (filter === "needs_recheck" && stale) || (filter === "pending" && !complete && !stale));
+    return matchesText && inTriage(item) && (filter === "all" || (filter === "completed" && complete) || (filter === "needs_recheck" && stale) || (filter === "pending" && !complete && !stale));
   });
   filtered.sort((a, b) => triage(a)[0] - triage(b)[0] || a.case_id.localeCompare(b.case_id));
   $("#filtered-count").textContent = `${filtered.length} 个案件`;
@@ -225,6 +234,12 @@ async function refresh() {
     connection.className = "connection offline"; connection.replaceChildren(node("i"), document.createTextNode("本地服务未连接"));
     info(results[0].reason.message, true); renderTasks();
   }
+  try {
+    const status = await api("/api/agent/status");
+    const line = $("#system-status");
+    line.textContent = `研判 ${status.version} · ${status.deepseek_configured ? "模型已接入" : "离线模式"} · 本机费用 ${Number(status.spent_cny).toFixed(2)} / ${status.cap_cny} 元`;
+    line.hidden = false;
+  } catch (_) {}
   if (results[1].status === "fulfilled") state.config = results[1].value;
   else state.config = { deepseek_configured: false, deepseek_governed_ready: false, config_error: results[1].reason.message };
   $("#refresh-button").disabled = false;

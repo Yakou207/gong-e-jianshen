@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>工e鉴审 · 反洗钱智能甄别工作台</title>
-  <link rel="stylesheet" href="/style.css?v=2.1.5">
-  <script src="/app.js?v=2.1.5" defer></script>
-  <script src="/stages.js?v=2.1.5" defer></script>
-  <script src="/assistant.js?v=2.1.5" defer></script>
+  <link rel="stylesheet" href="/style.css?v=2.1.6">
+  <script src="/app.js?v=2.1.6" defer></script>
+  <script src="/stages.js?v=2.1.6" defer></script>
+  <script src="/assistant.js?v=2.1.6" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -21,17 +21,17 @@
         <button class="nav-item" data-view="delivery"><span class="nav-icon" aria-hidden="true">↻</span>复核归档</button>
       </nav>
       <div class="sidebar-note"><span class="eyebrow">审查原则</span><p>规则先筛，AI 取证。<br>数字来自工具，结论交给人。<br>来源变化，重新复核。</p></div>
-      <div class="sidebar-foot"><span class="status-dot"></span><span>合成数据 · 研究原型<small>v0.4.1 实施基线</small></span></div>
+      <div class="sidebar-foot"><span class="status-dot"></span><span>合成数据 · 研究原型<small>v2.0 · 仅限合成或脱敏数据</small></span></div>
     </aside>
     <div class="app-main">
       <header class="topbar">
-        <div class="breadcrumb">工行杯 / 金融安全服务<span>/</span><strong id="view-label">质检任务</strong></div>
-        <div class="topbar-right"><button class="button secondary small assistant-top" id="assistant-toggle" type="button" title="⌘/Ctrl+J"><span class="assistant-mark">✦</span> AML 助手</button><span id="connection-status" class="connection"><i></i>正在连接本地服务</span><span class="environment">SYNTHETIC ONLY</span></div>
+        <div class="breadcrumb">工行杯 / 金融安全服务<span>/</span><strong id="view-label">案件列表</strong></div>
+        <div class="topbar-right"><button class="button secondary small assistant-top" id="assistant-toggle" type="button" title="⌘/Ctrl+J"><span class="assistant-mark">✦</span> AML 助手</button><span id="system-status" class="system-status" hidden></span><span id="connection-status" class="connection"><i></i>正在连接本地服务</span><span class="environment">SYNTHETIC ONLY</span></div>
       </header>
       <main id="main" tabindex="-1">
         <div id="notice" role="status" aria-live="polite" hidden></div>
         <section id="view-tasks" class="view">
-          <div class="page-heading"><div><div class="eyebrow">REVIEW DESK</div><h1>案件列表</h1><p>每个预警案件依次经过：资料接入 → 规则检验 → AI 研判 → 理由质检 → 人工复核归档。</p></div><div class="heading-actions"><button class="button secondary" id="refresh-button">刷新任务</button><button class="button secondary" id="import-button">导入 JSON 案件包</button><button class="button primary" id="intake-button"><span aria-hidden="true">＋</span> 上传资料新建案件</button></div></div>
+          <div class="page-heading"><div><div class="eyebrow">ALERT QUEUE</div><h1>案件列表</h1><p>每个预警依次经过：资料接入 → 规则检验 → AI 研判 → 理由质检 → 人工复核归档。列表按处理优先级排序，点上方卡片可筛选。</p></div><div class="heading-actions"><button class="button secondary" id="refresh-button">刷新任务</button><button class="button secondary" id="import-button">导入 JSON 案件包</button><button class="button primary" id="intake-button"><span aria-hidden="true">＋</span> 上传资料新建案件</button></div></div>
           <div class="summary-grid" id="task-summary"></div>
           <div class="panel task-panel">
             <div class="panel-toolbar"><div class="panel-title">任务队列<span id="filtered-count" class="muted"></span></div><div class="filters"><label class="search-box"><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="搜索案件编号或名称" aria-label="搜索案件"></label><select id="task-filter" aria-label="人工处理状态"><option value="all">全部人工状态</option><option value="pending">待处理</option><option value="needs_recheck">需重新复核</option><option value="completed">已确认完成</option></select></div></div>
