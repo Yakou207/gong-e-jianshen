@@ -98,7 +98,7 @@ function renderRules(target) {
   }));
   const parties = direction => {
     const side = f[direction];
-    const table = append(node("table", "small-table"), append(node("thead"), append(node("tr"), node("th", "", "对手"), node("th", "", "笔数"), node("th", "", "金额（元）"), node("th", "", "占比"))));
+    const table = append(node("table", "small-table"), append(node("thead"), append(node("tr"), node("th", "", "对手"), node("th", "numeric", "笔数"), node("th", "numeric", "金额（元）"), node("th", "numeric", "占比"))));
     const body = node("tbody");
     side.top_counterparties.forEach(p => body.append(append(node("tr"), node("td", "", p.display_name), node("td", "numeric", p.count), node("td", "numeric", p.amount), node("td", "numeric", p.share_percent === null ? "—" : `${p.share_percent}%`))));
     table.append(body);
