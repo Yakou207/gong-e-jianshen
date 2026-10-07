@@ -102,3 +102,14 @@ def test_report_draft_needs_a_current_draft_and_follows_the_human_decision(tmp_p
                                                       "recommendation": "report_suspicious"})
     ready = c.post("/api/cases/seed-02/str-draft", json={}).json()
     assert ready["ready_to_submit_for_review"] is True and "转出集中且无材料" in ready["markdown"]
+
+
+def test_health_is_open_and_the_access_token_guards_the_api(tmp_path, monkeypatch):
+    c = client(tmp_path, monkeypatch)
+    health = c.get("/api/health").json()
+    assert health["status"] == "ok" and health["cases"] == 1 and health["access_token_required"] is False
+    monkeypatch.setenv("AML_QC_ACCESS_TOKEN", "s3cret")
+    assert c.get("/api/cases").status_code == 401
+    assert c.get("/api/cases", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert c.get("/api/cases", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert c.get("/api/health").json()["access_token_required"] is True and c.get("/").status_code == 200

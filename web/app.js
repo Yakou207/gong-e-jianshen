@@ -82,9 +82,23 @@ function errorText(detail) {
   if (Array.isArray(detail)) return detail.map(item => `${list(item.loc).join(".")}: ${item.msg || json(item)}`).join("\n");
   return json(detail);
 }
+function authHeaders() {
+  let token = null;
+  try { token = localStorage.getItem("aml-access-token"); } catch (_) {}
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+async function authorizedFetch(path, options = {}) {
+  const send = () => fetch(path, { ...options, headers: { "Content-Type": "application/json", ...authHeaders(), ...(options.headers || {}) } });
+  let response = await send();
+  if (response.status === 401) {
+    const token = window.prompt("此工作台已启用访问控制，请输入访问令牌：");
+    if (token) { try { localStorage.setItem("aml-access-token", token.trim()); } catch (_) {} response = await send(); }
+  }
+  return response;
+}
 async function api(path, options = {}) {
   let response;
-  try { response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options }); }
+  try { response = await authorizedFetch(path, options); }
   catch (_) { throw new Error("无法连接本地服务。请确认后端已启动，再点击刷新。"); }
   const text = await response.text();
   let data;

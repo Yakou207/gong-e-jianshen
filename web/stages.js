@@ -256,7 +256,7 @@ function decisionForm(session) {
   return box;
 }
 async function streamPost(path, payload, onEvent) {
-  const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const response = await authorizedFetch(path, { method: "POST", body: JSON.stringify(payload) });
   if (!response.ok) { let text = await response.text(); try { text = errorText(JSON.parse(text).detail); } catch (_) {} throw new Error(text || `HTTP ${response.status}`); }
   const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = "";
   for (;;) {
@@ -364,12 +364,17 @@ function openIntake() {
   const csv = node("textarea"); csv.name = "transactions_csv"; csv.rows = 6; csv.className = "code-editor small-editor";
   csv.placeholder = "transaction_id,direction,amount,timestamp,counterparty_token,counterparty_name\nT001,转入,200.00,2026-09-01 09:00:00,P01,付款人甲\nT002,转出,1500.00,2026-09-01 15:20:00,S01,某贸易公司";
   const file = node("input"); file.type = "file"; file.accept = ".csv,text/csv";
-  file.addEventListener("change", async () => { if (file.files[0]) csv.value = await file.files[0].text(); });
+  file.addEventListener("change", async () => {
+    if (!file.files[0]) return;
+    const bytes = await file.files[0].arrayBuffer();
+    try { csv.value = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch (_) { csv.value = new TextDecoder("gb18030").decode(bytes); }  // bank exports are often GBK
+  });
   const status = select([["full", "完整（检查期内流水齐全）"], ["partial", "不完整（有缺失时段）"]], "full"); status.name = "coverage_status";
   const confirm = node("input"); confirm.type = "checkbox";
   const error = node("p", "form-error"); error.hidden = true;
   append(form, append(node("div", "dialog-heading"), append(node("div"), node("div", "eyebrow", "INTAKE"), node("h2", "", "上传资料新建案件")), Object.assign(button("×", "icon-button", () => dialog.close()), { ariaLabel: "关闭" })),
-    node("p", "dialog-description", "上传交易流水 CSV 并填写预警关注点。系统会自动建立案件包、记录资料版本，之后可直接进入规则检验和 AI 研判。"),
+    node("p", "dialog-description", "上传交易流水 CSV（UTF-8 或 GBK；英文表头或“交易流水号、借贷标志、交易金额、交易时间、对方账号、对方户名、摘要”等常见中文表头均可）并填写预警关注点。系统会建立案件包、记录资料版本，所有无法导入的行会一次列出。"),
     append(node("div", "runner-fields"), input("case_id", "案件编号", "如 case-2026-001"), input("account_id", "被检账户", "如 acct-001")),
     append(node("div", "runner-fields"), input("business_type", "经营类型", "如 社区餐饮店"), field("流水完整性", status)),
     append(node("div", "runner-fields"), input("coverage_start", "检查期起点", "2026-09-01 00:00:00"), input("coverage_end", "检查期终点（不含）", "2026-09-15 00:00:00")),

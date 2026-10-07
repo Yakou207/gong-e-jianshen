@@ -1,12 +1,14 @@
 """Routes for stage ① intake, ② system checks, ③ AI 研判 (streamed) and ④ the human decision on the AI draft."""
+import hmac
 import json
+import os
 import queue
 import threading
 import time
 from typing import Literal
 
 from fastapi import HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import assistant, core, investigation, str_draft
@@ -139,6 +141,29 @@ def discrepancy(run, issue, package):
 
 
 def register(app, store):
+    @app.middleware("http")
+    async def require_token(request, call_next):
+        """Optional shared access token (AML_QC_ACCESS_TOKEN) for any deployment beyond one analyst's own machine."""
+        token = os.environ.get("AML_QC_ACCESS_TOKEN", "")
+        path = request.url.path
+        if token and path.startswith("/api/") and path != "/api/health":
+            given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+            if not hmac.compare_digest(given.encode(), token.encode()):
+                return JSONResponse({"detail": "需要访问令牌"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/api/health")
+    def health():
+        try:
+            cases = len(store.list())
+            database = "ok"
+        except Exception as exc:  # reported, not raised: health checks must answer
+            cases, database = None, type(exc).__name__
+        return {"status": "ok" if database == "ok" else "degraded", "database": database, "cases": cases,
+                "components": {"investigation": investigation.VERSION, "assistant": assistant.VERSION},
+                "model_configured": bool(settings()["DEEPSEEK_API_KEY"]), "spend_cap_cny": str(cap()),
+                "access_token_required": bool(os.environ.get("AML_QC_ACCESS_TOKEN"))}
+
     @app.get("/api/agent/status")
     def agent_status():
         return {"deepseek_configured": bool(settings()["DEEPSEEK_API_KEY"]), "spent_cny": str(spent()),
