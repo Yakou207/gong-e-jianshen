@@ -87,3 +87,18 @@ def test_chat_and_intake_and_rules(tmp_path, monkeypatch):
 def test_review_app_starts_without_seed_cases(tmp_path, monkeypatch):
     monkeypatch.setenv("AML_QC_DB", str(tmp_path / "review.sqlite3"))
     assert TestClient(agent_api.review_app()).get("/api/cases").json()["cases"] == []
+
+
+def test_report_draft_needs_a_current_draft_and_follows_the_human_decision(tmp_path, monkeypatch):
+    c = client(tmp_path, monkeypatch, [happy_script()])
+    assert c.post("/api/cases/seed-02/str-draft", json={}).status_code == 409
+    events(c.post("/api/cases/seed-02/investigate", json={"provider": "deepseek"}))
+    draft = c.post("/api/cases/seed-02/str-draft", json={"measures": ["monitor"]}).json()
+    assert draft["ready_to_submit_for_review"] is False and "尚未作出" in draft["markdown"]
+    assert "对该账户开展持续交易监测" in draft["markdown"] and "第三十条" in draft["markdown"]
+    assert c.post("/api/cases/seed-02/str-draft", json={"measures": ["freeze"]}).status_code == 400
+    sid = c.get("/api/cases/seed-02/sessions").json()["sessions"][0]["session_id"]
+    c.post("/api/cases/seed-02/verdict-review", json={"session_id": sid, "action": "revise", "reason": "转出集中且无材料",
+                                                      "recommendation": "report_suspicious"})
+    ready = c.post("/api/cases/seed-02/str-draft", json={}).json()
+    assert ready["ready_to_submit_for_review"] is True and "转出集中且无材料" in ready["markdown"]

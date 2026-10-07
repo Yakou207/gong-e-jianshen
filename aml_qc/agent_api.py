@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import assistant, core, investigation
+from . import assistant, core, investigation, str_draft
 from .flows import flow_profile
 from .intake import build_case
 from .llm import DeepSeek, settings
@@ -51,6 +51,11 @@ class AssistantInput(BaseModel):
     message: str = Field(min_length=1, max_length=800)
     history: list[dict] = Field(default_factory=list, max_length=20)
     context: dict = Field(default_factory=dict)
+
+
+class StrDraftInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    measures: list[str] = Field(default_factory=list, max_length=len(str_draft.MEASURES))
 
 
 class VerdictReviewInput(BaseModel):
@@ -249,6 +254,21 @@ def register(app, store):
             finally:
                 _RUN_LOCK.release()
         return _stream(run)
+
+    @app.post("/api/cases/{case_id}/str-draft")
+    def report_draft(case_id: str, body: StrDraftInput):
+        state = store.get(case_id)
+        latest = state["agent"]["latest_investigation"]
+        if not latest or not latest.get("verdict") or latest.get("stale"):
+            raise HTTPException(409, "需要一份当前有效的 AI 研判草稿，才能汇编报告初稿")
+        decision = state["agent"]["latest_decision"]
+        if decision and decision.get("target_id") != "verdict:" + latest["session_id"]:
+            decision = None
+        try:
+            draft = str_draft.build(state["package"], latest, decision, body.measures)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+        return {**draft, "measures": str_draft.MEASURES}
 
     @app.post("/api/cases/{case_id}/verdict-review")
     def verdict_review(case_id: str, body: VerdictReviewInput):

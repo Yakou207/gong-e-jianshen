@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>工e鉴审 · 反洗钱智能甄别工作台</title>
-  <link rel="stylesheet" href="/style.css?v=2.1.4">
-  <script src="/app.js?v=2.1.4" defer></script>
-  <script src="/stages.js?v=2.1.4" defer></script>
-  <script src="/assistant.js?v=2.1.4" defer></script>
+  <link rel="stylesheet" href="/style.css?v=2.1.5">
+  <script src="/app.js?v=2.1.5" defer></script>
+  <script src="/stages.js?v=2.1.5" defer></script>
+  <script src="/assistant.js?v=2.1.5" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -35,7 +35,7 @@
           <div class="summary-grid" id="task-summary"></div>
           <div class="panel task-panel">
             <div class="panel-toolbar"><div class="panel-title">任务队列<span id="filtered-count" class="muted"></span></div><div class="filters"><label class="search-box"><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="搜索案件编号或名称" aria-label="搜索案件"></label><select id="task-filter" aria-label="人工处理状态"><option value="all">全部人工状态</option><option value="pending">待处理</option><option value="needs_recheck">需重新复核</option><option value="completed">已确认完成</option></select></div></div>
-            <div class="table-scroll"><table class="task-table"><thead><tr><th>案件 / 检查任务</th><th>资料版本</th><th>AI 研判</th><th>理由质检</th><th>质检建议</th><th>人工处理</th><th>资料覆盖</th><th><span class="sr-only">打开任务</span></th></tr></thead><tbody id="task-rows"></tbody></table></div><div id="task-empty" class="empty-state" hidden></div>
+            <div class="table-scroll"><table class="task-table"><thead><tr><th>处理优先级</th><th>案件 / 检查任务</th><th>资料版本</th><th>AI 研判</th><th>理由质检</th><th>质检建议</th><th>人工处理</th><th>资料覆盖</th><th><span class="sr-only">打开任务</span></th></tr></thead><tbody id="task-rows"></tbody></table></div><div id="task-empty" class="empty-state" hidden></div>
           </div>
           <div class="scope-note"><span class="note-symbol">i</span><p>所有案例均为合成数据。系统形成本次检查范围内的质检建议，人工确认问题不等于问题已解决；质检通过不代表客户不存在洗钱风险。</p></div>
         </section>

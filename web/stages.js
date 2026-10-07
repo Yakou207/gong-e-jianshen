@@ -308,7 +308,48 @@ function renderArchive(target) {
     tile("理由质检问题", `${issues().filter(i => i.type !== "new_lead").length} 条`, `已确认 ${confirmed} · 已驳回 ${rejected}`),
     tile("未决事项", `${openItems().length} 项`, state.detail?.review_status ? label(state.detail.review_status) : "—"));
   target.append(stageIntro("复核与归档", "汇总 AI 研判的人工决定与理由质检结果；资料变化后在这里增量重查，受影响的人工记录会被标为需复核；最后导出带版本的审计包。"), tiles, statusStrip());
+  if (latest?.verdict && !latest.stale) target.append(strPanel());
   renderDelivery(target);
+}
+function strPanel() {
+  const panel = append(node("section", "panel str-panel"),
+    append(node("div", "panel-toolbar"), append(node("div"), node("span", "panel-title", "可疑交易报告初稿"),
+      node("small", "muted", "  由 AI 草稿、工具返回与人工决定自动汇编，不调用模型；系统不报送"))));
+  const body = node("div", "section-body"); panel.append(body);
+  const chosen = new Set();
+  async function refresh() {
+    let draft;
+    try { draft = await api(casePath("/str-draft"), { method: "POST", body: JSON.stringify({ measures: [...chosen] }) }); }
+    catch (error) { body.replaceChildren(node("p", "inline-empty", error.message)); return; }
+    const measures = append(node("fieldset", "str-measures"), node("legend", "", "建议采取的措施（甄别人员选择，系统只记录、不执行）"),
+      ...Object.entries(draft.measures).map(([key, text]) => {
+        const box = Object.assign(node("input"), { type: "checkbox", checked: chosen.has(key) });
+        box.addEventListener("change", () => { box.checked ? chosen.add(key) : chosen.delete(key); refresh(); });
+        return append(node("label", "check-label"), box, document.createTextNode(text));
+      }));
+    const download = button("下载初稿（Markdown）", "secondary small", () => {
+      const url = URL.createObjectURL(new Blob([draft.markdown], { type: "text/markdown" }));
+      Object.assign(document.createElement("a"), { href: url, download: `可疑交易报告初稿-${draft.case_id}.md` }).click();
+      URL.revokeObjectURL(url);
+    });
+    const preview = node("div", "str-preview");
+    draft.sections.forEach(section => {
+      preview.append(node("h3", "", section.title));
+      if (section.note) preview.append(node("p", "muted", section.note));
+      (section.rows || []).forEach(([key, value]) => preview.append(append(node("p"), node("strong", "", key + "："), document.createTextNode(value))));
+      if (section.items) preview.append(append(node("ul"), ...section.items.map(item => node("li", "", item))));
+      [section, ...(section.subtables || [])].filter(t => t.table).forEach(t => {
+        if (t.caption) preview.append(node("p", "mini-heading", t.caption));
+        const table = append(node("table", "small-table"), append(node("thead"), append(node("tr"), ...t.head.map(h => node("th", "", h)))),
+          append(node("tbody"), ...t.table.map(row => append(node("tr"), ...row.map(c => node("td", "", String(c)))))));
+        preview.append(append(node("div", "table-scroll"), table));
+      });
+    });
+    body.replaceChildren(append(node("div", "str-head"), node("span", `badge ${draft.ready_to_submit_for_review ? "red" : "amber"}`, draft.status), download), measures,
+      append(node("details", "str-details"), node("summary", "", `预览初稿全文（${draft.sections.length} 部分）`), preview));
+  }
+  refresh();
+  return panel;
 }
 
 // 上传资料新建案件

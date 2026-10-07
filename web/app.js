@@ -131,6 +131,17 @@ function coverLabel(value) {
 }
 const completedReviews = ["completed", "confirmed_complete", "reviewed", "本次质检范围内通过"];
 const outdatedReviews = ["needs_review", "needs_recheck", "needs_reconfirmation", "recheck_required", "reconfirm_required", "stale"];
+// Queue triage from deterministic signals only: which alerts to dig into first and which are quick-close candidates.
+function triage(item) {
+  const cover = coverLabel(first(item.coverage_summary, item.coverage, item.completeness));
+  const ai = item.ai_stale ? null : item.ai_recommendation;
+  if (item.human_decision) return [5, "已人工决定", "", "人工已对 AI 草稿作出决定"];
+  if (ai === "report_suspicious") return [0, "优先深挖", "red", "AI 建议上报，等待人工决定"];
+  if (item.qc_recommendation === "建议退回修订") return [1, "优先复核理由", "red", "经办理由与流水或材料不符"];
+  if (ai === "insufficient_evidence" || cover !== "full" || item.qc_recommendation === "建议补证") return [2, "补充尽调", "amber", cover !== "full" ? "流水不完整" : "缺少关键材料"];
+  if (!ai) return [3, "待研判", "", "尚无有效 AI 草稿"];
+  return [4, "可快速关闭", "green", "AI 建议排除、流水完整、质检无退回；仍须人工确认"];
+}
 function renderTasks() {
   $("#nav-count").textContent = state.cases.length;
   const counts = [
@@ -149,13 +160,16 @@ function renderTasks() {
     const stale = outdatedReviews.includes(reviewState) || item.stale || item.needs_recheck;
     return matchesText && (filter === "all" || (filter === "completed" && complete) || (filter === "needs_recheck" && stale) || (filter === "pending" && !complete && !stale));
   });
+  filtered.sort((a, b) => triage(a)[0] - triage(b)[0] || a.case_id.localeCompare(b.case_id));
   $("#filtered-count").textContent = `${filtered.length} 个案件`;
   $("#task-rows").replaceChildren(...filtered.map(item => {
     const row = node("tr");
     const identity = append(node("td"), node("span", "case-name", item.title || item.case_id), node("span", "case-id", item.case_id), node("span", "task-type", label(item.task_mode)));
     const ai = item.ai_recommendation ? { report_suspicious: ["建议上报", "red"], exclude: ["建议排除", "green"], insufficient_evidence: ["需补充尽调", "amber"] }[item.ai_recommendation] : null;
     const aiCell = append(node("td"), ai ? node("span", `badge ${item.ai_stale ? "" : ai[1]}`, (item.ai_stale ? "已过期 · " : "") + ai[0] + (item.human_decision ? " · 已人工决定" : "")) : node("span", "badge", "未研判"));
-    append(row, identity, append(node("td"), node("span", "version-label", compact(item.data_version))), aiCell, append(node("td"), badge(item.run_status || "not_started")), append(node("td"), badge(item.qc_recommendation || "pending")), append(node("td"), badge(item.review_status || "pending", "review")), append(node("td"), badge(coverLabel(first(item.coverage_summary, item.coverage, item.completeness)), "coverage")), append(node("td"), button("审查 →", "text", () => loadCase(item.case_id, "workspace"))));
+    const [, level, color, why] = triage(item);
+    const triageCell = append(node("td"), Object.assign(node("span", `badge ${color}`, level), { title: why }));
+    append(row, triageCell, identity, append(node("td"), node("span", "version-label", compact(item.data_version))), aiCell, append(node("td"), badge(item.run_status || "not_started")), append(node("td"), badge(item.qc_recommendation || "pending")), append(node("td"), badge(item.review_status || "pending", "review")), append(node("td"), badge(coverLabel(first(item.coverage_summary, item.coverage, item.completeness)), "coverage")), append(node("td"), button("审查 →", "text", () => loadCase(item.case_id, "workspace"))));
     return row;
   }));
   const blank = $("#task-empty"); blank.hidden = filtered.length > 0;
