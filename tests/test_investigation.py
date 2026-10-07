@@ -97,6 +97,14 @@ def test_numbers_not_in_tool_returns_are_flagged_for_humans():
     assert any("9999.00元" in w for w in session["warnings"]) and not any("3笔" in w for w in session["warnings"])
 
 
+def test_figures_from_the_upfront_rule_results_are_not_flagged():
+    case = seed()
+    inflow = inv.flow_profile(case)["inflow"]
+    text = f"检查期间转入 {inflow['count']} 笔，合计 {inflow['amount']} 元；另有 8888.00 元。"
+    session = inv.investigate(case, Scripted(happy_script(verdict(summary=text))))
+    assert session["warnings"] == ["以下数字未在工具返回中找到，请人工核对：8888.00元"]
+
+
 def test_exclude_is_blocked_when_coverage_is_partial_and_every_focus_needs_an_answer():
     case = seed()
     case["coverage"][0]["status"] = "partial"

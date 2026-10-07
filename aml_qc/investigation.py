@@ -23,7 +23,7 @@ from .llm import ModelError, json_answer
 from .workflow import default_schema, execute_tool, tool_definitions
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "investigation-1.2"
+VERSION = "investigation-1.3"
 PROMPT_ROOT = ROOT / "config/prompts/inv-1.2"
 AGENT_PROMPT = (PROMPT_ROOT / "agent.txt").read_text().strip()
 VERDICT_PROMPT = (PROMPT_ROOT / "verdict.txt").read_text().strip()
@@ -211,8 +211,10 @@ def _norm(text):
 AMOUNT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(元|笔|个|次|%)")
 
 
-def check_verdict(case, verdict, trace):
-    """Return (errors, warnings, policy_flags). Errors mean the draft cannot be shown as a valid draft."""
+def check_verdict(case, verdict, trace, given=None):
+    """Return (errors, warnings, policy_flags). Errors mean the draft cannot be shown as a valid draft.
+
+    Numbers may come from tool returns or from the deterministic rule results the agent was given up front."""
     calls = {t["ref"]: t for t in trace if t["status"] == "completed"}
     errors, warnings, flags = [], [], []
 
@@ -233,7 +235,7 @@ def check_verdict(case, verdict, trace):
     answered = [a.focus_id for a in verdict.focus_answers]
     if sorted(answered) != sorted(focuses):
         errors.append("关注点回答须与预警关注点一一对应：应为 " + "、".join(sorted(focuses)))
-    known = set()
+    known = _numbers_in(given) if given else set()
     for call in calls.values():
         _numbers_in(call["result"], known)
     texts = [verdict.summary, verdict.draft_opinion] + [f.finding for f in verdict.risk_findings + verdict.mitigating_findings] \
@@ -330,7 +332,7 @@ def investigate(case, model, emit=lambda event: None, schema=None):
             verdict = Verdict.model_validate(raw)
         except ValidationError as exc:
             raise ModelError("研判草稿不符合输出结构：" + "; ".join(e["msg"] for e in exc.errors()[:3])) from None
-        errors, warnings, flags = check_verdict(case, verdict, trace)
+        errors, warnings, flags = check_verdict(case, verdict, trace, ctx["rule_results"])
         session.update(verdict=verdict.model_dump(), errors=errors, warnings=warnings, policy_flags=flags,
                        status="needs_attention" if errors else "completed")
         push({"type": "verdict", "verdict": session["verdict"], "label": RECOMMENDATIONS[verdict.recommendation],
