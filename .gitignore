@@ -69,6 +69,7 @@
 !/scripts/score_heldout.py
 !/scripts/generate_investigation_benchmark.py
 !/scripts/score_investigation.py
+!/scripts/generate_hard_benchmark.py
 
 !/docs/
 !/docs/images/
