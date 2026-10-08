@@ -87,24 +87,51 @@ function renderTurn(events, live = false) {
   if (live && !done && !error) wrap.append(node("div", "console-typing", "助手思考中…"));
   return wrap;
 }
+const QUEUE_LABEL = { all: "全部预警", deep: "优先深挖", evidence: "补充尽调", close: "可快速关闭" };
+const SOURCE_LABEL = { narrative: "理由与预警", transactions: "流水", materials: "材料", coverage: "覆盖 / 映射" };
+const DECISION_LABEL = { adopt: "采纳 AI 草稿", revise: "修改后采纳", reject: "驳回 AI 草稿" };
 function actionCard(event, live) {
-  if (event.action === "open_case") return node("div", "assistant-step action", `→ 已打开 ${event.case_id} · ${ASSISTANT_STAGE[event.stage] || ""}`);
-  if (event.action === "go_to_stage") return node("div", "assistant-step action", `→ 已切换到 ${ASSISTANT_STAGE[event.stage] || event.stage}`);
-  const card = append(node("div", "assistant-proposal"), node("strong", "", "建议操作：" + event.label), node("p", "", event.reason));
+  const done = {
+    open_case: () => `→ 已打开 ${event.case_id} · ${ASSISTANT_STAGE[event.stage] || ""}`,
+    go_to_stage: () => `→ 已切换到 ${ASSISTANT_STAGE[event.stage] || event.stage}`,
+    go_to_list: () => `→ 已回到案件列表 · ${QUEUE_LABEL[event.filter] || "全部预警"}`,
+    show_source: () => `→ 已打开资料页签「${SOURCE_LABEL[event.tab] || event.tab}」`,
+    highlight_transactions: () => `→ 已在流水中高亮 ${event.transaction_ids.length} 笔交易`,
+    open_report_draft: () => "→ 已打开可疑交易报告初稿",
+    open_intake: () => "→ 已打开上传对话框",
+  }[event.action];
+  if (done) return node("div", "assistant-step action", done());
+  const detail = event.proposal === "select_measures" ? "措施：" + list(event.measures).map(m => strMeasureLabel(m)).join("；")
+    : event.proposal === "prefill_decision" ? `${DECISION_LABEL[event.decision]}${event.recommendation ? " → " + (RECOMMENDATION[event.recommendation]?.[0] || "") : ""}${event.reason_draft ? "；理由草稿：" + event.reason_draft : ""}` : "";
+  const card = append(node("div", "assistant-proposal"), node("strong", "", "建议操作：" + event.label), node("p", "", event.reason), detail ? node("p", "muted", detail) : null);
   if (!live) {
     card.append(append(node("div", "stage-actions"),
       button("确认执行", "primary small", () => runProposal(event)), button("忽略", "secondary small", () => { card.remove(); })));
   }
   return card;
 }
+function goStage(stage) {
+  if (state.view !== "workspace") { state.stage = stage; setView("workspace"); } else setStage(stage);
+}
 async function runProposal(event) {
   if (event.case_id && (state.caseId !== event.case_id || state.view !== "workspace")) { state.stage = "ai"; await loadCase(event.case_id, "workspace"); }
-  setStage("ai");
+  if (event.proposal === "select_measures") { state.strMeasures = list(event.measures); state.strOpen = true; goStage("review"); return; }
+  if (event.proposal === "prefill_decision") {
+    state.decisionPrefill = { decision: event.decision, recommendation: event.recommendation, reason: event.reason_draft || "" };
+    goStage("ai"); document.querySelector(".decision-box")?.scrollIntoView({ block: "center", behavior: "smooth" }); return;
+  }
+  goStage("ai");
   startInvestigation(event.proposal === "replay_investigation" ? "replay" : "deepseek");
 }
+// Page actions the assistant may take directly: they change what is shown, never what is recorded.
 async function performAction(event) {
   if (event.action === "open_case") { state.stage = event.stage || "ai"; await loadCase(event.case_id, "workspace"); }
-  else if (event.action === "go_to_stage" && state.view === "workspace") setStage(event.stage);
+  else if (event.action === "go_to_stage" && state.caseId) goStage(event.stage);
+  else if (event.action === "go_to_list") { state.triageFilter = event.filter || "all"; setView("tasks"); renderTasks(); }
+  else if (event.action === "show_source" && state.caseId) { state.sourceTab = event.tab; state.evidence = null; goStage("materials"); }
+  else if (event.action === "highlight_transactions" && state.caseId) { goStage("materials"); locateEvidence({ transaction_ids: event.transaction_ids }); }
+  else if (event.action === "open_report_draft" && state.caseId) { state.strOpen = true; goStage("review"); }
+  else if (event.action === "open_intake") openIntake();
 }
 async function sendAssistant(message) {
   if (assistantState.busy) return;

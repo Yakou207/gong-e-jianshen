@@ -16,17 +16,24 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from . import investigation as inv
+from .str_draft import MEASURES
 from .depgraph import canonical
 from .llm import ModelError, json_answer
 from .workflow import default_schema
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "assistant-1.0"
-SYSTEM_PROMPT = (ROOT / "config/prompts/assistant-1.0/system.txt").read_text().strip()
+VERSION = "assistant-1.1"
+SYSTEM_PROMPT = (ROOT / "config/prompts/assistant-1.1/system.txt").read_text().strip()
 HELP = (ROOT / "config/help/workbench.txt").read_text()
 HELP_SECTIONS = {m.group(1).strip(): m.group(2).strip() for m in re.finditer(r"^## (.+?)\n(.*?)(?=^## |\Z)", HELP, re.S | re.M)}
 STAGES = {"materials": "① 案件资料", "rules": "② 规则检验", "ai": "③ AI 研判", "qc": "④ 理由质检", "review": "⑤ 复核归档"}
-ACTIONS = {"start_investigation": "开始 AI 研判（调用大模型，产生费用）", "replay_investigation": "回放上次研判（免费）"}
+ACTIONS = {"start_investigation": "开始 AI 研判（调用大模型，产生费用）", "replay_investigation": "回放上次研判（免费）",
+           "select_measures": "在报告初稿中勾选建议措施", "prefill_decision": "预填人工决定表单（不提交）"}
+QUEUE_FILTERS = {"all": "全部预警", "deep": "优先深挖", "evidence": "补充尽调", "close": "可快速关闭"}
+SOURCE_TABS = {"narrative": "理由与预警", "transactions": "流水", "materials": "材料", "coverage": "覆盖 / 映射"}
+DECISIONS = {"adopt": "采纳 AI 草稿", "revise": "修改后采纳", "reject": "驳回 AI 草稿"}
+UI_TOOLS = ("open_case", "go_to_stage", "go_to_list", "show_source", "highlight_transactions", "open_report_draft", "open_intake",
+            "propose_action")
 MAX_ROUNDS, TOOLS_PER_ROUND, MAX_MODEL_CALLS = 4, 3, 6
 CASE_TOOLS = ("query_transactions", "flow_profile", "compute_features", "check_coverage", "resolve_entity", "read_material", "read_document")
 
@@ -45,8 +52,21 @@ def tools(case_open):
         _fn("open_case", "在工作台中打开案件，可指定阶段。", {"case_id": {"type": "string"},
             "stage": {"type": "string", "enum": list(STAGES)}}, ["case_id"]),
         _fn("go_to_stage", "切换当前案件的阶段。", {"stage": {"type": "string", "enum": list(STAGES)}}, ["stage"]),
-        _fn("propose_action", "向用户建议一个需要其确认才执行的操作。", {"action": {"type": "string", "enum": list(ACTIONS)},
-            "reason": {"type": "string"}}, ["action", "reason"]),
+        _fn("go_to_list", "回到案件列表，可按处理优先级筛选（all 全部、deep 优先深挖、evidence 补充尽调、close 可快速关闭）。",
+            {"filter": {"type": "string", "enum": list(QUEUE_FILTERS)}}),
+        _fn("show_source", "在当前案件的 ① 案件资料中打开某个页签（narrative 理由与预警、transactions 流水、materials 材料、coverage 覆盖）。",
+            {"tab": {"type": "string", "enum": list(SOURCE_TABS)}}, ["tab"]),
+        _fn("highlight_transactions", "在当前案件的流水中高亮并定位指定交易；交易编号须来自工具返回。",
+            {"transaction_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 50}}, ["transaction_ids"]),
+        _fn("open_report_draft", "打开当前案件 ⑤ 复核归档中的可疑交易报告初稿预览。"),
+        _fn("open_intake", "打开“上传资料新建案件”对话框。"),
+        _fn("propose_action", "向用户建议一个需要其确认才执行的操作：start_investigation 开始研判（产生费用）、replay_investigation 免费回放、"
+            "select_measures 在报告初稿中勾选措施（填 measures）、prefill_decision 预填人工决定表单但不提交（填 decision，revise 时填 recommendation，可填 reason_draft）。",
+            {"action": {"type": "string", "enum": list(ACTIONS)}, "reason": {"type": "string"},
+             "measures": {"type": "array", "items": {"type": "string", "enum": list(MEASURES)}},
+             "decision": {"type": "string", "enum": list(DECISIONS)},
+             "recommendation": {"type": "string", "enum": list(inv.RECOMMENDATIONS)},
+             "reason_draft": {"type": "string", "maxLength": 300}}, ["action", "reason"]),
     ]
     if case_open:
         defs += [d for d in inv.tools() if d["function"]["name"] in CASE_TOOLS]
@@ -60,24 +80,68 @@ class Workbench:
         self.list_cases, self.case_status, self.package = list_cases, case_status, package
 
 
-def _ui(name, args, workbench, context):
-    """Validate a UI action server-side; the page performs it."""
+def _ui(name, args, workbench, context, case=None):
+    """Validate a UI action server-side; the page performs it. Nothing here submits a decision or changes data."""
     case_id = args.get("case_id") or context.get("case_id")
-    if name in ("open_case",) and case_id not in {c["case_id"] for c in workbench.list_cases()}:
+    if name == "open_case" and case_id not in {c["case_id"] for c in workbench.list_cases()}:
         raise ValueError("案件不存在：" + str(case_id))
-    if name == "go_to_stage" and not context.get("case_id"):
+    if name in ("go_to_stage", "show_source", "highlight_transactions", "open_report_draft", "propose_action") and not context.get("case_id"):
         raise ValueError("当前没有打开的案件，请先 open_case")
-    if name == "propose_action" and not context.get("case_id"):
-        raise ValueError("请先打开案件，再建议操作")
     stage = args.get("stage")
     if stage is not None and stage not in STAGES:
         raise ValueError("未知阶段")
-    action = {"open_case": {"action": "open_case", "case_id": case_id, "stage": stage or "ai"},
-              "go_to_stage": {"action": "go_to_stage", "stage": stage},
-              "propose_action": {"action": "propose", "proposal": args.get("action"), "label": ACTIONS.get(args.get("action")),
-                                 "reason": args.get("reason", ""), "case_id": context.get("case_id")}}[name]
-    if name == "propose_action" and args.get("action") not in ACTIONS:
+    if name == "open_case":
+        return {"action": "open_case", "case_id": case_id, "stage": stage or "ai"}
+    if name == "go_to_stage":
+        return {"action": "go_to_stage", "stage": stage}
+    if name == "go_to_list":
+        wanted = args.get("filter") or "all"
+        if wanted not in QUEUE_FILTERS:
+            raise ValueError("可选筛选：" + "、".join(QUEUE_FILTERS))
+        return {"action": "go_to_list", "filter": wanted}
+    if name == "show_source":
+        if args.get("tab") not in SOURCE_TABS:
+            raise ValueError("可选页签：" + "、".join(SOURCE_TABS))
+        return {"action": "show_source", "tab": args["tab"]}
+    if name == "highlight_transactions":
+        wanted = args.get("transaction_ids")
+        if not isinstance(wanted, list) or not wanted or len(wanted) > 50:
+            raise ValueError("请给出 1–50 个交易编号")
+        known = {t["transaction_id"] for t in (case or {}).get("transactions", [])}
+        unknown = [t for t in wanted if t not in known]
+        if unknown:
+            raise ValueError("本案没有这些交易：" + "、".join(map(str, unknown[:5])))
+        return {"action": "highlight_transactions", "transaction_ids": list(dict.fromkeys(wanted))}
+    status = workbench.case_status(context["case_id"]) if context.get("case_id") else {}
+    has_draft = bool(status.get("ai_recommendation")) and not status.get("ai_draft_stale")
+    if name == "open_report_draft":
+        if not has_draft:
+            raise ValueError("本案还没有当前有效的 AI 研判草稿，无法汇编报告初稿")
+        return {"action": "open_report_draft"}
+    if name == "open_intake":
+        return {"action": "open_intake"}
+    proposal = args.get("action")
+    if proposal not in ACTIONS:
         raise ValueError("未知操作")
+    action = {"action": "propose", "proposal": proposal, "label": ACTIONS[proposal], "reason": args.get("reason", ""),
+              "case_id": context.get("case_id")}
+    if proposal == "select_measures":
+        measures = args.get("measures") or []
+        if not measures or any(m not in MEASURES for m in measures):
+            raise ValueError("请从以下措施中选择：" + "、".join(MEASURES))
+        if not has_draft:
+            raise ValueError("本案还没有当前有效的 AI 研判草稿")
+        action["measures"] = list(dict.fromkeys(measures))
+    if proposal == "prefill_decision":
+        decision, recommendation = args.get("decision"), args.get("recommendation")
+        if decision not in DECISIONS:
+            raise ValueError("decision 须为 adopt、revise 或 reject")
+        if decision == "revise" and recommendation not in inv.RECOMMENDATIONS:
+            raise ValueError("修改后采纳须给出最终结论 recommendation")
+        if not has_draft:
+            raise ValueError("本案还没有当前有效的 AI 研判草稿")
+        action.update(decision=decision, recommendation=recommendation if decision == "revise" else None,
+                      reason_draft=str(args.get("reason_draft") or "")[:300])
     return action
 
 
@@ -98,8 +162,8 @@ def run_tool(name, args, workbench, context, case_state):
         if not target:
             raise ValueError("请给出 case_id，或先打开案件")
         return workbench.case_status(target), None
-    if name in ("open_case", "go_to_stage", "propose_action"):
-        action = _ui(name, args, workbench, context)
+    if name in UI_TOOLS:
+        action = _ui(name, args, workbench, context, case_state[0] if case_state else None)
         return {"status": "ok", "ui_action": action}, action
     if name in CASE_TOOLS:
         if case_state is None:
@@ -184,6 +248,12 @@ def converse(message, history, context, workbench, model, emit=lambda event: Non
                             schema = package.get("schema") or default_schema()
                             case_state = (package, schema, inv._evaluator(package, schema))
                             defs = tools(True)
+                    elif action["action"] == "go_to_list":
+                        context, case_id, case_state, defs = {**context, "view": "tasks", "case_id": None, "stage": None}, None, None, tools(False)
+                    elif action["action"] in ("show_source", "highlight_transactions"):
+                        context = {**context, "stage": "materials"}
+                    elif action["action"] == "open_report_draft":
+                        context = {**context, "stage": "review"}
                 messages.append({"role": "tool", "tool_call_id": call.get("id"),
                                  "content": canonical({"ref": ref, "status": status, "result": result})})
         citable = [{"ref": t["ref"], "tool": t["tool"], "summary": summarize(t["tool"], t["result"])} for t in trace if t["status"] == "completed"]
@@ -232,5 +302,7 @@ def summarize(name, result):
     if "ui_action" in result:
         a = result["ui_action"]
         return {"open_case": f"打开 {a.get('case_id')} · {STAGES.get(a.get('stage'), '')}", "go_to_stage": f"切换到 {STAGES.get(a.get('stage'), '')}",
-                "propose": f"建议：{a.get('label')}（待你确认）"}[a["action"]]
+                "go_to_list": f"回到案件列表 · {QUEUE_FILTERS.get(a.get('filter'), '')}", "show_source": f"打开资料页签「{SOURCE_TABS.get(a.get('tab'), '')}」",
+                "highlight_transactions": f"高亮 {len(a.get('transaction_ids', []))} 笔交易", "open_report_draft": "打开报告初稿预览",
+                "open_intake": "打开上传对话框", "propose": f"建议：{a.get('label')}（待你确认）"}[a["action"]]
     return inv.summarize(name, result)

@@ -242,6 +242,14 @@ function decisionForm(session) {
   const reason = node("textarea"); reason.placeholder = "写明采纳、修改或驳回的依据"; reason.rows = 3; reason.required = true;
   const actor = select([["甄别人员", "甄别人员"], ["复核员", "复核员"]], "甄别人员");
   const submit = Object.assign(button(decision ? "追加新的人工决定" : "提交人工决定", "primary run-button"), { type: "submit", disabled: session.stale || state.busy });
+  const prefill = state.decisionPrefill; state.decisionPrefill = null;
+  if (prefill) {
+    action.value = prefill.decision; recField.hidden = prefill.decision !== "revise";
+    if (prefill.recommendation) rec.value = prefill.recommendation;
+    reason.value = prefill.reason;
+    box.classList.add("prefilled");
+    box.append(node("p", "flag warn", "以下内容由 AML 助手预填，请核对、修改后由你本人提交；助手不能提交决定。"));
+  }
   append(box, append(node("div", "runner-fields"), field("人工操作", action), field("角色", actor)), recField, field("理由（必填）", reason), submit,
     node("p", "review-disclaimer", session.stale ? "资料已更新，此草稿已过期，请重新研判。" : "人工决定以追加事件写入审计链；AI 草稿本身不会被修改。"));
   box.addEventListener("submit", async e => {
@@ -316,7 +324,9 @@ function strPanel() {
     append(node("div", "panel-toolbar"), append(node("div"), node("span", "panel-title", "可疑交易报告初稿"),
       node("small", "muted", "  由 AI 草稿、工具返回与人工决定自动汇编，不调用模型；系统不报送"))));
   const body = node("div", "section-body"); panel.append(body);
-  const chosen = new Set();
+  const chosen = new Set(list(state.strMeasures));
+  const openPreview = Boolean(state.strOpen);
+  state.strMeasures = null; state.strOpen = false;
   async function refresh() {
     let draft;
     try { draft = await api(casePath("/str-draft"), { method: "POST", body: JSON.stringify({ measures: [...chosen] }) }); }
@@ -346,7 +356,9 @@ function strPanel() {
       });
     });
     body.replaceChildren(append(node("div", "str-head"), node("span", `badge ${draft.ready_to_submit_for_review ? "red" : "amber"}`, draft.status), download), measures,
-      append(node("details", "str-details"), node("summary", "", `预览初稿全文（${draft.sections.length} 部分）`), preview));
+      Object.assign(append(node("details", "str-details"), node("summary", "", `预览初稿全文（${draft.sections.length} 部分）`), preview), { open: openPreview || body.dataset.open === "1" }));
+    body.querySelector(".str-details").addEventListener("toggle", e => { body.dataset.open = e.target.open ? "1" : ""; });
+    if (openPreview && !body.dataset.scrolled) { body.dataset.scrolled = "1"; panel.scrollIntoView({ block: "start", behavior: "smooth" }); }
   }
   refresh();
   return panel;
@@ -396,4 +408,7 @@ function openIntake() {
     } catch (err) { error.textContent = err.message; error.hidden = false; }
   });
   dialog.replaceChildren(form); dialog.showModal();
+}
+function strMeasureLabel(key) {
+  return { raise_risk: "调高客户洗钱风险等级", monitor: "持续交易监测", edd: "强化尽职调查", limit_channel: "风险相称地限制非柜面渠道或额度" }[key] || key;
 }

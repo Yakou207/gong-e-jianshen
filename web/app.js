@@ -374,7 +374,7 @@ function locateEvidence(evidence) {
   else state.sourceTab = "coverage";
   if (state.view === "delivery") setView("workspace"); else renderDetail();
   const highlight = $(".transaction-row.highlight, .document-card.highlight, .text-highlight, .lead-focus-highlight");
-  highlight?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  highlight?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 function evidenceLinks(value) {
   const refs = Array.isArray(value) ? value : value ? [value] : [];

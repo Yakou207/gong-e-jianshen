@@ -54,3 +54,4 @@ body.assistant-open .workbench{grid-template-columns:minmax(230px,.95fr) minmax(
 .str-details>summary{cursor:pointer;font-size:11px;color:var(--red);margin-bottom:6px}
 .triage-card{text-align:left;cursor:pointer;font:inherit;color:inherit;transition:border-color .15s,box-shadow .15s}.triage-card:hover{border-color:#cfd3d7}.triage-card.selected{border-color:#6b7580;box-shadow:inset 0 -3px 0 #6b7580}.triage-card.red .summary-value{color:var(--red)}.triage-card.amber .summary-value{color:var(--amber)}.triage-card.green .summary-value{color:var(--green)}.system-status{font-size:10px;color:#8c939a;font-variant-numeric:tabular-nums;letter-spacing:.2px}
 .small-table th.numeric{text-align:right}
+.decision-box.prefilled{outline:2px solid #e4c88c;outline-offset:6px;border-radius:4px}

@@ -45,6 +45,8 @@
 !/config/prompts/inv-1.2/*.txt
 !/config/prompts/assistant-1.0/
 !/config/prompts/assistant-1.0/*.txt
+!/config/prompts/assistant-1.1/
+!/config/prompts/assistant-1.1/*.txt
 !/config/help/
 !/config/help/*.txt
 
