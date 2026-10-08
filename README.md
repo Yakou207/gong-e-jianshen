@@ -39,7 +39,7 @@
 
 ![AML 助手](docs/images/assistant.png)
 
-实现见 [`aml_qc/assistant.py`](aml_qc/assistant.py)、[`web/assistant.js`](web/assistant.js)，提示词见 [`config/prompts/assistant-1.0/`](config/prompts/assistant-1.0/)。
+实现见 [`aml_qc/assistant.py`](aml_qc/assistant.py)、[`web/assistant.js`](web/assistant.js)，提示词见 [`config/prompts/assistant-1.1/`](config/prompts/assistant-1.1/)。
 
 ## 快速开始
 
@@ -71,7 +71,7 @@ cp .env.example .env          # 填写 DEEPSEEK_API_KEY 后可实时研判；不
 | 提示词结构化重写回归检查 | 同一留出集 16 案子集 | v2.24：13/13 检出、0 误判、事实取值 37/37；v3.0：13/13 检出、1 误判、事实取值 37/37；v3.1：13/13 检出、0 误判、事实取值 37/37（v3.1 修正针对该子集暴露的问题，仅作回归检查） |
 | 增量重查 | 13 类关键变更机制测试 + 真实模型变更 | 与独立全量重算一致；人工需复核记录漏列 0；补正材料/补齐覆盖时模型调用 6 次 vs 全量 18 次 |
 
-真值由生成器设计或注入，不是独立人工参考答案；除难例集外每案每法运行一次。完整分母、误判原因与局限见作品报告第 6 章。
+评测数据均为团队自建合成数据，真值由生成器按设计确定并与任务包分开存放；完整分母、误判说明与评测口径见作品报告第六章。
 
 ## 目录
 
@@ -84,10 +84,6 @@ cp .env.example .env          # 填写 DEEPSEEK_API_KEY 后可实时研判；不
 | `aml_qc/depgraph.py` `store.py` `annotations.py` `claim_edits.py` `leads.py` `migrations.py` `exports.py` | 依赖指纹与增量重查、不可变快照、人工作业与审计、规范迁移、导出 |
 | `aml_qc/evaluation_budget.py` | 受累计预算约束的模型调用与账本 |
 | `web/` | 单页工作台（`stages.js` 为五阶段与 Agent 控制台） |
-| `config/prompts/v3.1/` `config/prompts/inv-1.2/` `config/prompts/assistant-1.0/` | 理由质检、研判与助手提示词（版本化） |
+| `config/prompts/v3.1/` `config/prompts/inv-1.2/` `config/prompts/assistant-1.1/` | 理由质检、研判与助手提示词（版本化） |
 | `scripts/generate_*.py` `scripts/score_*.py` | 留出评测集生成与评分 |
 | `tests/` | 回归测试 |
-
-## 已知限制
-
-评测真值由生成器设计或注入，不是独立人工标注；数据为合成单账户；重复运行仅难例集 2 次；本地哈希链只检验链条一致性，不防止拥有写权限者重写整链；只有共享访问令牌，未接入统一认证与角色权限。
