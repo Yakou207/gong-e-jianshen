@@ -105,6 +105,17 @@ def test_figures_from_the_upfront_rule_results_are_not_flagged():
     assert session["warnings"] == ["以下数字未在工具返回中找到，请人工核对：8888.00元"]
 
 
+def test_figures_must_match_their_unit_and_percentages_are_checked():
+    returned = {"amount_cents": 10000, "amount": "100.00", "count": 3, "share_percent": 96.6,
+                "out_in_ratio": {"numerator": 35000, "denominator": 40000}}
+    known = inv._figures(returned)
+    assert inv.unverified_figures(["转出合计10000元，集中度9999%"], known) == ["10000元", "9999%"]
+    assert inv.unverified_figures(["共 10000 笔"], known) == ["10000笔"]
+    assert inv.unverified_figures(["转出合计100元、共 3 笔，占比 96.6%，约 97%，转出/转入 87.5%"], known) == []
+    assert inv.unverified_figures(["另转出 4.8 万元", "合计 0.01 万元"], known) == ["4.8万元"]
+    assert inv.unverified_figures(["合计约 0.0 万元", "约 1 万元"], inv._figures({"amount": "9800.00"})) == ["0.0万元"]
+
+
 def test_exclude_is_blocked_when_coverage_is_partial_and_every_focus_needs_an_answer():
     case = seed()
     case["coverage"][0]["status"] = "partial"

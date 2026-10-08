@@ -115,3 +115,12 @@ def test_measures_and_decision_prefill_are_only_proposed_and_never_submitted():
                        "case_id": "seed-02", "decision": "adopt", "recommendation": None, "reason_draft": "转出集中且无材料"}
     assert turn["trace"][2]["status"] == "failed" and "recommendation" in turn["trace"][2]["result"]["error"]
     assert not any(d["function"]["name"] in ("verdict_review", "submit_decision") for d in assistant.tools(True))
+
+
+def test_assistant_figures_are_unit_matched_too():
+    rows = [{"case_id": "seed-02"}]
+    wb = assistant.Workbench(lambda: rows, lambda c: {"case_id": c, "ai_summary": "转入 68,500.00 元，共 33 笔", "qc_issues": []}, lambda c: SEED)
+    turn = assistant.converse("概况？", [], {"view": "tasks"}, wb, Scripted([
+        {"role": "assistant", "content": "", "tool_calls": [call("s", "case_status", case_id="seed-02")]},
+        {"role": "assistant", "content": ""}, answer("共 68500 笔、33 元，集中度 9999% [A1]", ["A1"])]))
+    assert turn["warnings"] == ["以下数字未在工具返回中找到，请核对：33元、68500笔、9999%"]

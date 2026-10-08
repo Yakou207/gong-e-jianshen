@@ -23,7 +23,7 @@ from .llm import ModelError, json_answer
 from .workflow import default_schema, execute_tool, tool_definitions
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "investigation-1.3"
+VERSION = "investigation-1.4"
 PROMPT_ROOT = ROOT / "config/prompts/inv-1.2"
 AGENT_PROMPT = (PROMPT_ROOT / "agent.txt").read_text().strip()
 VERDICT_PROMPT = (PROMPT_ROOT / "verdict.txt").read_text().strip()
@@ -182,39 +182,79 @@ def _returned_ids(value, found=None):
     return found
 
 
-def _numbers_in(value, found=None):
-    """Every numeric literal in tool returns, normalised (amounts both as yuan and cents)."""
-    found = set() if found is None else found
+YUAN, COUNT, PERCENT = "元", "笔", "%"
+UNIT_KIND = {"元": YUAN, "万元": YUAN, "笔": COUNT, "个": COUNT, "次": COUNT, "%": PERCENT}
+AMOUNT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万元|元|笔|个|次|%)")
+DECIMAL = re.compile(r"-?\d+\.\d{1,2}")
+
+
+def _figure(number, unit):
+    """(kind, value) for a figure written in text; 万元 is converted to 元."""
+    value = float(number.replace(",", "")) * (10000 if unit == "万元" else 1)
+    return UNIT_KIND[unit], value
+
+
+def _figures(value, found=None, key=""):
+    """Typed figures in tool returns: yuan, counts and percentages are kept apart so one cannot vouch for another.
+
+    Yuan: decimal strings and *amount* fields, and *_cents integers converted to yuan. Counts: other integers and list
+    lengths. Percent: *percent* fields and numerator/denominator pairs. Figures quoted inside returned text count by unit.
+    """
+    found = {YUAN: set(), COUNT: set(), PERCENT: set()} if found is None else found
+    name = key.lower()
     if isinstance(value, dict):
-        for item in value.values():
-            _numbers_in(item, found)
+        num, den = value.get("numerator", value.get("ratio_numerator")), value.get("denominator", value.get("ratio_denominator"))
+        if isinstance(num, (int, float)) and isinstance(den, (int, float)) and den:
+            found[PERCENT].add(round(num / den * 100, 1))
+        for k, item in value.items():
+            _figures(item, found, k)
     elif isinstance(value, list):
-        found.add(str(len(value)))
+        found[COUNT].add(float(len(value)))
         for item in value:
-            _numbers_in(item, found)
+            _figures(item, found, key)
     elif isinstance(value, bool):
         pass
     elif isinstance(value, (int, float)):
-        found.add(_norm(str(value)))
-        if isinstance(value, int) and value >= 100:
-            found.add(_norm(f"{value / 100:.2f}"))
-    elif isinstance(value, str) and re.fullmatch(r"-?\d+(\.\d+)?", value):
-        found.add(_norm(value))
+        if name.endswith("_cents"):
+            found[YUAN].add(round(value / 100, 2))
+        elif "percent" in name:
+            found[PERCENT].add(round(float(value), 1))
+        elif "amount" in name or "numerator" in name or "denominator" in name:
+            pass  # bare amounts in cents are only meaningful through *_cents or ratios
+        elif isinstance(value, int):
+            found[COUNT].add(float(value))
+    elif isinstance(value, str):
+        if DECIMAL.fullmatch(value) and ("amount" in name or name in ("", "value", "total")):
+            found[YUAN].add(round(float(value), 2))
+        elif "percent" in name and re.fullmatch(r"-?\d+(\.\d+)?", value):
+            found[PERCENT].add(round(float(value), 1))
+        else:
+            for number, unit in AMOUNT.findall(value):
+                kind, figure = _figure(number, unit)
+                found[kind].add(round(figure, 2 if kind == YUAN else 1))
     return found
 
 
-def _norm(text):
-    text = text.replace(",", "")
-    return text.rstrip("0").rstrip(".") if "." in text else text
+def _traceable(number, unit, found):
+    kind, figure = _figure(number, unit)
+    if kind == PERCENT:  # written percentages may be rounded to whole or one-decimal figures
+        return any(abs(figure - p) <= (0.05 if figure != int(figure) else 0.5) for p in found[PERCENT])
+    if unit == "万元":  # 万元 figures are roundings: "116万元" stands for any amount that rounds to it
+        places = len(number.split(".")[1]) if "." in number else 0
+        return any(round(v / 10000, places) == round(figure / 10000, places) for v in found[YUAN])
+    return round(figure, 2) in found[kind] if kind == YUAN else float(figure) in found[kind]
 
 
-AMOUNT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(元|笔|个|次|%)")
+def unverified_figures(texts, found):
+    """Figures in the given texts whose unit-matched value appears in no tool return or given context."""
+    return sorted({number + unit for text in texts for number, unit in AMOUNT.findall(text) if not _traceable(number, unit, found)})
 
 
 def check_verdict(case, verdict, trace, given=None):
     """Return (errors, warnings, policy_flags). Errors mean the draft cannot be shown as a valid draft.
 
-    Numbers may come from tool returns or from the deterministic rule results the agent was given up front."""
+    Figures may come from tool returns or from the context the agent was given up front (alert, customer profile,
+    deterministic rule results); each must match in unit."""
     calls = {t["ref"]: t for t in trace if t["status"] == "completed"}
     errors, warnings, flags = [], [], []
 
@@ -235,13 +275,13 @@ def check_verdict(case, verdict, trace, given=None):
     answered = [a.focus_id for a in verdict.focus_answers]
     if sorted(answered) != sorted(focuses):
         errors.append("关注点回答须与预警关注点一一对应：应为 " + "、".join(sorted(focuses)))
-    known = _numbers_in(given) if given else set()
+    known = _figures(given) if given else None
     for call in calls.values():
-        _numbers_in(call["result"], known)
+        known = _figures(call["result"], known)
+    known = known or _figures({})
     texts = [verdict.summary, verdict.draft_opinion] + [f.finding for f in verdict.risk_findings + verdict.mitigating_findings] \
         + [a.answer for a in verdict.focus_answers]
-    unverified = sorted({m.group(1) + m.group(2) for text in texts for m in AMOUNT.finditer(text)
-                         if m.group(2) != "%" and _norm(m.group(1)) not in known})
+    unverified = unverified_figures(texts, known)
     if unverified:
         warnings.append("以下数字未在工具返回中找到，请人工核对：" + "、".join(unverified))
     coverage = core.check_coverage(case)
@@ -332,7 +372,7 @@ def investigate(case, model, emit=lambda event: None, schema=None):
             verdict = Verdict.model_validate(raw)
         except ValidationError as exc:
             raise ModelError("研判草稿不符合输出结构：" + "; ".join(e["msg"] for e in exc.errors()[:3])) from None
-        errors, warnings, flags = check_verdict(case, verdict, trace, ctx["rule_results"])
+        errors, warnings, flags = check_verdict(case, verdict, trace, ctx)
         session.update(verdict=verdict.model_dump(), errors=errors, warnings=warnings, policy_flags=flags,
                        status="needs_attention" if errors else "completed")
         push({"type": "verdict", "verdict": session["verdict"], "label": RECOMMENDATIONS[verdict.recommendation],

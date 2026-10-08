@@ -22,7 +22,7 @@ from .llm import ModelError, json_answer
 from .workflow import default_schema
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "assistant-1.1"
+VERSION = "assistant-1.2"
 SYSTEM_PROMPT = (ROOT / "config/prompts/assistant-1.1/system.txt").read_text().strip()
 HELP = (ROOT / "config/help/workbench.txt").read_text()
 HELP_SECTIONS = {m.group(1).strip(): m.group(2).strip() for m in re.finditer(r"^## (.+?)\n(.*?)(?=^## |\Z)", HELP, re.S | re.M)}
@@ -266,16 +266,10 @@ def converse(message, history, context, workbench, model, emit=lambda event: Non
             raise ModelError("回答不符合输出结构") from None
         valid = {c["ref"] for c in citable}
         turn["errors"] = [f"引用了不存在的工具返回 {c}" for c in answer.citations if c not in valid]
-        known = set()
-        for t in trace:
-            if t["status"] == "completed":
-                inv._numbers_in(t["result"], known)
-        inv._numbers_in(snapshot, known)
-        # Figures quoted inside returned text (case summaries, help) also count as coming from the system.
-        for text in re.findall(r'"([^"]*)"', canonical([t["result"] for t in trace if t["status"] == "completed"] + [snapshot])):
-            known.update(inv._norm(n) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", text))
-        unverified = sorted({m.group(1) + m.group(2) for m in inv.AMOUNT.finditer(answer.answer)
-                             if m.group(2) != "%" and inv._norm(m.group(1)) not in known})
+        # Typed by unit: yuan only vouches for yuan, counts for counts, percentages for percentages. Figures quoted
+        # inside returned text (case summaries, help) count by the unit written next to them.
+        known = inv._figures([t["result"] for t in trace if t["status"] == "completed"] + [snapshot])
+        unverified = inv.unverified_figures([answer.answer], known)
         if unverified:
             turn["warnings"].append("以下数字未在工具返回中找到，请核对：" + "、".join(unverified))
         turn.update(answer=answer.model_dump(), status="completed")
