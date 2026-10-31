@@ -1,0 +1,300 @@
+{
+ "contract": "investigation-score-1",
+ "truth_kind": "generator_designed_not_human_reference",
+ "cases": 24,
+ "accuracy": {
+  "correct": 24,
+  "total": 24,
+  "rate": 1.0
+ },
+ "per_class_recall": {
+  "report_suspicious": {
+   "correct": 8,
+   "total": 8
+  },
+  "insufficient_evidence": {
+   "correct": 8,
+   "total": 8
+  },
+  "exclude": {
+   "correct": 8,
+   "total": 8
+  }
+ },
+ "confusion": {
+  "exclude->exclude": 8,
+  "insufficient_evidence->insufficient_evidence": 8,
+  "report_suspicious->report_suspicious": 8
+ },
+ "suspicious_missed_as_exclude": 0,
+ "exclude_flagged_suspicious": 0,
+ "drafts_with_evidence_errors": 2,
+ "drafts_with_number_warnings": 1,
+ "drafts_with_policy_flags": 0,
+ "model_calls": 120,
+ "tool_calls": 225,
+ "tool_failures": 15,
+ "tool_usage": {
+  "read_document": 24,
+  "read_material": 22,
+  "check_coverage": 24,
+  "query_transactions": 45,
+  "compute_features": 55,
+  "resolve_entity": 32,
+  "flow_profile": 23
+ },
+ "input_tokens": 1595299,
+ "output_tokens": 55507,
+ "cost_cny": "1.25221980",
+ "cost_cny_per_case": "0.0522",
+ "mean_duration_s": 13.4,
+ "rows": [
+  {
+   "case_id": "inv-01",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期内共 12 笔入账合计 2,405.49 元，来自 12 个不同对手、单笔小额且无夜间交易，与服装批发档口散客扫码收款的经营背景一致；仅 1 笔出账 1,347.00 元付给庚纺织，金额、对手、方向均与采购发票对应。F1、F2 规则均未触发，流水覆盖为 full，两个关注点均可由现有资料解释。"
+  },
+  {
+   "case_id": "inv-02",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "学生个人账户（无经营收入申报、材料目录为空）在12天内密集发生57笔分散小额个人转入合计149000.00元，并以96.6%比例于当日固定时间集中转出至同一对手ir-02-0共12笔143925.00元，快进快出、多进一出，与客户身份及收入背景明显不符且无材料可解释。"
+  },
+  {
+   "case_id": "inv-03",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "账户收款为12笔小额、12个不同对手，与手机配件店散客扫码收款相符，F1/F2均为not_met；向己电子的1303.00元有采购发票对应。但7月12日向合成个人账户甲转出5600.00元远超其约4千元月营业额，且无任何材料或流水背景支撑，需补充核实。"
+  },
+  {
+   "case_id": "inv-04",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期内入账13笔、合计3298.10元，来自13个不同对手、单笔98.95–376.80元，与文具零售散客扫码收款、月营业额约7千元相符；唯一出账2143.00元向壬文化（is-04）支付，与材料目录中同额采购发票（买方ia-04、卖方is-04）一一对应，构成采购付款。F1、F2均为not_met，流水覆盖full，两个关注点均可由现有资料合理解释。"
+  },
+  {
+   "case_id": "inv-05",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户账户在两周内由33个互不重复的个人账户分散小额转入共68,500.00元，其中17笔发生在凌晨时段；资金几乎全额（97.3%，66,650.00元）于当日23:40集中转出至同一对手ir-05-0，呈快进快出、分散进单一出的过账形态。客户仅自述自由职业、做网络兼职且未经核实，无任何材料可解释上述来源与用途，整体形态与其身份、经营背景明显不符。"
+  },
+  {
+   "case_id": "inv-06",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [
+    "以下数字未在工具返回中找到，请人工核对：1780.00元"
+   ],
+   "policy_flags": [],
+   "summary": "检查期内收款为13笔小额、13个不同对手，符合五金零售散客扫码经营形态；向癸五金支付的1778.00元有采购发票对应。但8月13日向合成个人账户乙转出6100.00元无任何材料说明，且远超其月营业额与日常进货规模，整体形态与身份大体相符但该笔关键支出缺少依据，建议补充尽调后再定。"
+  },
+  {
+   "case_id": "inv-07",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "期间入账14笔合计3032.31元来自14个不同散客对手，单笔小额、日间、分散，与服装批发档口散客扫码收款特征相符；唯一出账1910.00元付给供应商庚纺织，与采购发票金额、对手、方向一一对应。F1、F2均未达标，覆盖完整，两个关注点均有事实依据可合理解释。"
+  },
+  {
+   "case_id": "inv-08",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户为无业个人，检查期内共收到 64 笔来自 64 个不同个人的小额转入（合计 135000.00 元），并于当日 23:40 近乎全额（out_to_in_percent 96.4%）归集转出至同一对手 ir-08-0（12 笔，合计 130145.00 元）。资金形态呈多对一分散转入、集中转出的过账特征，与客户无业、无工作单位的身份明显不符，现有资料无法解释资金真实来源与用途。"
+  },
+  {
+   "case_id": "inv-09",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期内资金大体呈现小额零售特征：14 笔进账 3260.43 元、来自 14 个不同对手，与手机配件店散客扫码相符；转出仅 2 笔。其中向己电子的 1858.00 元有采购发票对应，可解释；但 7 月 14 日向某咨询工作室转出 7100.00 元（占转出额 79.3%）无任何材料佐证业务背景，整体尚不能完全解释。"
+  },
+  {
+   "case_id": "inv-10",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期（2026-08-06~2026-08-20）流水覆盖完整（full）。12 笔入账合计 2,900.77 元来自 12 个不同对手、单笔 137.44–306.53 元，分散小额，符合文具零售散客扫码收款；唯一出账 1,798.00 元于 2026-08-11 付给 fixed 供应商壬文化（is-10），与采购发票金额、对手、期间一致。预警两项关注点均可由材料与流水合理解释，未见与客户身份或经营背景明显不符的特征。"
+  },
+  {
+   "case_id": "inv-11",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户为在校研究生、自述月生活费约两千元，却在两周内收到35个不同个人对手的35笔小额转入共67,000.00元，并在6个隔日23:40以固定节奏将64,105.00元（占转入95.7%）全部转给同一对手ir-11-0，账户呈过账特征，与客户身份和收入背景明显不符，现有资料无法合理解释。"
+  },
+  {
+   "case_id": "inv-12",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期内流入为12笔小额散客扫码（合计2666.82元、12个对手），与五金店零售画像相符；向癸五金付款1866.00元有采购发票对应。向合成个人账户丙转出4900.00元的用途无任何材料支撑，需补充尽调后再定。"
+  },
+  {
+   "case_id": "inv-13",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "期间内共13笔入账合计2879.88元，来自13个不同对手的小额分散扫码收款，与服装批发档口散客零售特征相符；仅1笔出账为向庚纺织付款1929.00元，有采购发票支撑，与固定供应商进货描述一致。F1、F2均not_met，流水覆盖full，各关注点均获合理解释。"
+  },
+  {
+   "case_id": "inv-14",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户自述为月收入约六千元的外卖骑手，但两周内账户转入75笔合计145,500.00元（来自75个不同个人对手、单笔500–5,000元），随即有12笔合计141,105.00元于每日23:40全额转出至同一对手（合成个人账户甲，占转出100.0%），过账比例约97.0%，资金过渡/归集形态与客户身份明显不符，现有资料无法合理解释。"
+  },
+  {
+   "case_id": "inv-15",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "needs_attention",
+   "errors": [
+    "可疑特征引用了该调用未返回的交易：inv-15-out-14",
+    "关注点回答引用了该调用未返回的交易：inv-15-out-14"
+   ],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户为手机配件零售店，检查期内收款为13笔小额、13个不同对手（合计2270.91元），与散客扫码、月营业额约5千元的经营画像相符；向己电子付款1294.00元有采购发票对应。但7月16日向个人账户甲整额转出4500.00元（占期间转出77.7%）无材料与流水背景支撑，与“向固定供应商进货”的经营背景不符，现有关注点尚需补充尽调。"
+  },
+  {
+   "case_id": "inv-16",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "检查期内账户收款为14笔、合计3250.39元、来自14个不同对手的小额分散款，与文具零售散客扫码经营相符；唯一一笔付款2080.00元于2026-08-13付给壬文化(is-16)，与材料invoice采购发票金额、买卖双方、日期一一对应，属正常进货付款。F1、F2均not_met，流水覆盖full，各关注点均有合理解释。"
+  },
+  {
+   "case_id": "inv-17",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "个人账户开户用途为日常消费，但14天内出现31笔来自31个不同个人的小额转入（合计81,500.00元，含大量凌晨交易），并以固定时点几乎等额、全部集中转出至同一账户ir-17-0（6笔合计79,690.00元，转出/转入比97.8%），呈现分散小额进、集中等额出的形态；现有资料仅一份未经核实的自述，无法对资金来源与用途作出合理解释。"
+  },
+  {
+   "case_id": "inv-18",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "可见流水显示收款高度分散（14笔、合计3079.56元、14个对手，单笔最大364.66元），与五金零售散客扫码收款相符；向癸五金2155.00元付款有采购发票金额、对手、期间对应，可解释。但8月17日向合成个人账户乙单笔转出4300.00元无对应材料，且8/15后流水覆盖为partial，该笔用途与整体覆盖均需补充核实。"
+  },
+  {
+   "case_id": "inv-19",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "期间内收款12笔合计2738.28元、来自12个分散对手，单笔小额、无夜间交易，与服装批发档口散客扫码收款特征相符；唯一一笔付款1971.00元转给庚纺织，与采购发票金额、买卖双方及付款日一一对应，属固定供应商进货。F1、F2均未命中，流水覆盖full，两个关注点均可由材料与流水合理解释。"
+  },
+  {
+   "case_id": "inv-20",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "退休人员账户在12天内收到60名互不相同个人转入142000.00元（单笔500-5000元，含28笔凌晨），并以接近全额（out_to_in约97.1%）在每日23:40集中转给同一对手ir-20-0共12笔137915.00元；F1、F2均达标。现有资料（仅未核实的客户自述）无法解释该进出结构与客户身份、养老金收入背景的明显不符。"
+  },
+  {
+   "case_id": "inv-21",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "可见流水为12笔散客小额扫码收款（合计2413.51元），与手机配件店散客零售相符；向固定供应商己电子付款1641.00元有采购发票对应。但7月18日向“某咨询工作室”转出8200.00元无任何材料佐证、对手身份无法核实，且转出总额9841.00元远超同期转入2413.51元，第二周流水覆盖不完整，尚不足以定性。"
+  },
+  {
+   "case_id": "inv-22",
+   "expected": "exclude",
+   "predicted": "exclude",
+   "status": "needs_attention",
+   "errors": [
+    "关注点回答须与预警关注点一一对应：应为 focus-1"
+   ],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "本例为文具批发店，半月转入13笔共2938.14元、来自13个不同对手，单笔84.66~334.14元，无集中或夜间特征，与散客扫码收款相符；唯一出账为2026-08-15向壬文化支付2144.00元，与合成的办公文具采购发票金额、对手、方向一一对应，属向固定供应商进货付款。流水覆盖完整，两个关注点均可由材料和流水合理解释。"
+  },
+  {
+   "case_id": "inv-23",
+   "expected": "report_suspicious",
+   "predicted": "report_suspicious",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "客户为务农个人、季节性收入，但检查期内出现33笔来自33个不同个人的小额转入（合计80,500.00元），几乎等额（98.0%）在当日或隔日集中转出至同一对手合成个人账户甲（6笔、78,880.00元、占比100%），呈明显过账特征，与客户身份与经营背景不符，现有资料不能合理解释。"
+  },
+  {
+   "case_id": "inv-24",
+   "expected": "insufficient_evidence",
+   "predicted": "insufficient_evidence",
+   "status": "completed",
+   "errors": [],
+   "warnings": [],
+   "policy_flags": [],
+   "summary": "可见流入13笔2779.60元来自13个不同散客对手，与五金店散客扫码收款身份相符；2026-08-15向癸五金转出1917.00元有同额采购发票对应，可解释。但2026-08-19向个人账户丙单笔转出4300.00元无任何材料支撑，且该时段流水覆盖为partial，现有资料不能给出合理解释，建议补充尽调后再定。"
+  }
+ ]
+}

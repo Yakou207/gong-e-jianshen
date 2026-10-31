@@ -1,0 +1,318 @@
+{
+ "contract": "heldout-incremental-score-1",
+ "rows": [
+  {
+   "case_id": "heldout-21",
+   "change": "correct_material",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 13966,
+    "cost": "0.02241148",
+    "duration_s": 20.4,
+    "recomputed": 2,
+    "reused": 8,
+    "changed_sources": [
+     "source:material_links",
+     "source:materials",
+     "source:materials:supply-doc"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 15415,
+    "cost": "0.01297052",
+    "duration_s": 16.8,
+    "recomputed": 10,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "material_mismatch"
+   ],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-22",
+   "change": "correct_material",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 13371,
+    "cost": "0.01807116",
+    "duration_s": 16.7,
+    "recomputed": 2,
+    "reused": 9,
+    "changed_sources": [
+     "source:material_links",
+     "source:materials",
+     "source:materials:supply-doc"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 19072,
+    "cost": "0.02552476",
+    "duration_s": 30.8,
+    "recomputed": 11,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "material_mismatch"
+   ],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-23",
+   "change": "correct_material",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 15694,
+    "cost": "0.0266366",
+    "duration_s": 25.3,
+    "recomputed": 2,
+    "reused": 9,
+    "changed_sources": [
+     "source:material_links",
+     "source:materials",
+     "source:materials:supply-doc"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 19869,
+    "cost": "0.02729844",
+    "duration_s": 31.5,
+    "recomputed": 11,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "material_mismatch"
+   ],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-29",
+   "change": "complete_coverage",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 13072,
+    "cost": "0.01852312",
+    "duration_s": 14.0,
+    "recomputed": 7,
+    "reused": 3,
+    "changed_sources": [
+     "source:coverage"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 17938,
+    "cost": "0.02162120",
+    "duration_s": 27.3,
+    "recomputed": 10,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-30",
+   "change": "complete_coverage",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 15672,
+    "cost": "0.02735112",
+    "duration_s": 25.5,
+    "recomputed": 8,
+    "reused": 3,
+    "changed_sources": [
+     "source:coverage"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 18210,
+    "cost": "0.02768352",
+    "duration_s": 25.8,
+    "recomputed": 11,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-32",
+   "change": "complete_coverage",
+   "incremental": {
+    "model_calls": 1,
+    "tokens": 14579,
+    "cost": "0.02405668",
+    "duration_s": 20.6,
+    "recomputed": 9,
+    "reused": 3,
+    "changed_sources": [
+     "source:coverage"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 28645,
+    "cost": "0.06387076",
+    "duration_s": 70.2,
+    "recomputed": 12,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "claim_error"
+   ],
+   "after_issue_types": [
+    "claim_error"
+   ]
+  },
+  {
+   "case_id": "heldout-05",
+   "change": "correct_narrative",
+   "incremental": {
+    "model_calls": 3,
+    "tokens": 15680,
+    "cost": "0.02056840",
+    "duration_s": 18.3,
+    "recomputed": 7,
+    "reused": 3,
+    "changed_sources": [
+     "source:documents",
+     "source:documents:narrative",
+     "source:response_context"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 18911,
+    "cost": "0.02696952",
+    "duration_s": 32.0,
+    "recomputed": 10,
+    "reused": 0
+   },
+   "business_equal": true,
+   "deterministic_equal": true,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "claim_error"
+   ],
+   "after_issue_types": []
+  },
+  {
+   "case_id": "heldout-06",
+   "change": "correct_narrative",
+   "incremental": {
+    "model_calls": 3,
+    "tokens": 18417,
+    "cost": "0.02989340",
+    "duration_s": 29.5,
+    "recomputed": 8,
+    "reused": 3,
+    "changed_sources": [
+     "source:documents",
+     "source:documents:narrative",
+     "source:response_context"
+    ]
+   },
+   "full": {
+    "model_calls": 3,
+    "tokens": 18136,
+    "cost": "0.02739520",
+    "duration_s": 24.5,
+    "recomputed": 12,
+    "reused": 0
+   },
+   "business_equal": false,
+   "deterministic_equal": false,
+   "incremental_correct": true,
+   "full_correct": true,
+   "base_issue_types": [
+    "claim_error"
+   ],
+   "after_issue_types": []
+  }
+ ],
+ "narrative": [
+  "在 8 个留出案例上施加真实来源变更（补正材料、补齐流水覆盖、修订理由），比较“基于上一快照的增量重查”与“不读旧图的独立全量重算”。增量共调用模型 12 次、全量 24 次；token 合计 120,451 对 156,196。",
+  "确定性结论（事实核验、材料关系、F1/F2）在 7/8 个案例上增量与全量完全一致；变更后结论与更新后的真值一致：增量 8/8、全量 8/8。",
+  "节省幅度取决于变更类型：只改材料或覆盖时，事实抽取与回应判断可按完整指纹复用；理由文本改变时，依赖全文的抽取与回应必须重跑，节省有限——这正是保守依赖设计的预期行为。"
+ ],
+ "table_head": [
+  "变更类型",
+  "案例数",
+  "模型调用 增量/全量",
+  "token 增量/全量",
+  "成本(元) 增量/全量",
+  "耗时(秒) 增量/全量",
+  "确定性结论一致",
+  "变更后正确 增量·全量"
+ ],
+ "table_rows": [
+  [
+   "补正材料",
+   3,
+   "3/9（省67%）",
+   "43,031/54,356（省21%）",
+   "0.0671/0.0658",
+   "62/79",
+   "3/3",
+   "3/3 · 3/3"
+  ],
+  [
+   "补齐流水覆盖",
+   3,
+   "3/9（省67%）",
+   "43,323/64,793（省33%）",
+   "0.0699/0.1132",
+   "60/123",
+   "3/3",
+   "3/3 · 3/3"
+  ],
+  [
+   "修订理由文本",
+   2,
+   "6/6（省0%）",
+   "34,097/37,047（省8%）",
+   "0.0505/0.0544",
+   "48/56",
+   "1/2",
+   "2/2 · 2/2"
+  ]
+ ],
+ "table_widths": [
+  2.2,
+  1.2,
+  2.6,
+  3.2,
+  2.4,
+  1.9,
+  1.7,
+  2.2
+ ]
+}

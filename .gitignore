@@ -73,6 +73,15 @@
 !/scripts/score_investigation.py
 !/scripts/generate_hard_benchmark.py
 
+!/eval/
+!/eval/inv-v2/
+!/eval/inv-v2/score.json
+!/eval/hard-v1/
+!/eval/hard-v1/summary.json
+!/eval/heldout-v1/
+!/eval/heldout-v1/score-hv1.json
+!/eval/heldout-v1/incremental-score.json
+
 !/docs/
 !/docs/images/
 !/docs/images/*.png

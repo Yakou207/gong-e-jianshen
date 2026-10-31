@@ -1,0 +1,3590 @@
+{
+ "contract": "heldout-injected-defect-score-1",
+ "benchmark_manifest": "eval/heldout-v1/manifest.json",
+ "truth_kind": "generator_injected_defects_not_human_reference",
+ "cases": 32,
+ "families": 8,
+ "attempt_suffix": "hv1",
+ "formal_human_reference": false,
+ "summary": {
+  "b0": {
+   "attempts": 32,
+   "run_status": {
+    "failed": 1,
+    "not_run_or_interrupted": 31
+   },
+   "issue_detection": {
+    "claim_error": {
+     "tp": 0,
+     "fp": 0,
+     "fn": 18,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "material_mismatch": {
+     "tp": 0,
+     "fp": 0,
+     "fn": 4,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    },
+    "focus_not_addressed": {
+     "tp": 0,
+     "fp": 0,
+     "fn": 4,
+     "precision": null,
+     "recall": 0.0,
+     "f1": 0.0
+    }
+   },
+   "case_return_for_revision": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 26,
+    "precision": null,
+    "recall": 0.0,
+    "f1": 0.0,
+    "tn": 6
+   },
+   "claim_value_accuracy": {
+    "correct": 0,
+    "total": 75,
+    "rate": 0.0
+   },
+   "claim_value_accuracy_by_kind": {
+    "count": {
+     "correct": 0,
+     "total": 32,
+     "rate": 0.0
+    },
+    "amount_sum": {
+     "correct": 0,
+     "total": 32,
+     "rate": 0.0
+    },
+    "counterparty": {
+     "correct": 0,
+     "total": 5,
+     "rate": 0.0
+    },
+    "time_range": {
+     "correct": 0,
+     "total": 6,
+     "rate": 0.0
+    }
+   },
+   "claim_not_extracted": 3,
+   "partial_coverage_abstention": {
+    "other": 7
+   },
+   "material_accuracy": {
+    "correct": 0,
+    "total": 32,
+    "rate": 0.0
+   },
+   "focus_accuracy": {
+    "correct": 0,
+    "total": 42,
+    "rate": 0.0
+   },
+   "feature_accuracy": {
+    "correct": 0,
+    "total": 64,
+    "rate": 0.0
+   },
+   "cost_cny_total": "0.072583",
+   "cost_cny_per_case": "0.002268",
+   "model_calls_total": 1,
+   "input_tokens_total": 7055,
+   "output_tokens_total": 16382,
+   "mean_duration_s": 2.2,
+   "usage_complete": true
+  },
+  "fixed": {
+   "attempts": 32,
+   "run_status": {
+    "completed": 32
+   },
+   "issue_detection": {
+    "claim_error": {
+     "tp": 18,
+     "fp": 1,
+     "fn": 0,
+     "precision": 0.9473684210526315,
+     "recall": 1.0,
+     "f1": 0.972972972972973
+    },
+    "material_mismatch": {
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    },
+    "focus_not_addressed": {
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    }
+   },
+   "case_return_for_revision": {
+    "tp": 26,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "tn": 6
+   },
+   "claim_value_accuracy": {
+    "correct": 75,
+    "total": 75,
+    "rate": 1.0
+   },
+   "claim_value_accuracy_by_kind": {
+    "count": {
+     "correct": 32,
+     "total": 32,
+     "rate": 1.0
+    },
+    "amount_sum": {
+     "correct": 32,
+     "total": 32,
+     "rate": 1.0
+    },
+    "counterparty": {
+     "correct": 5,
+     "total": 5,
+     "rate": 1.0
+    },
+    "time_range": {
+     "correct": 6,
+     "total": 6,
+     "rate": 1.0
+    }
+   },
+   "claim_not_extracted": 0,
+   "partial_coverage_abstention": {
+    "correct": 7
+   },
+   "material_accuracy": {
+    "correct": 32,
+    "total": 32,
+    "rate": 1.0
+   },
+   "focus_accuracy": {
+    "correct": 42,
+    "total": 42,
+    "rate": 1.0
+   },
+   "feature_accuracy": {
+    "correct": 64,
+    "total": 64,
+    "rate": 1.0
+   },
+   "cost_cny_total": "1.10994756",
+   "cost_cny_per_case": "0.034686",
+   "model_calls_total": 96,
+   "input_tokens_total": 419169,
+   "output_tokens_total": 211926,
+   "mean_duration_s": 32.2,
+   "usage_complete": true
+  },
+  "agent": {
+   "attempts": 32,
+   "run_status": {
+    "completed": 32
+   },
+   "issue_detection": {
+    "claim_error": {
+     "tp": 18,
+     "fp": 1,
+     "fn": 0,
+     "precision": 0.9473684210526315,
+     "recall": 1.0,
+     "f1": 0.972972972972973
+    },
+    "material_mismatch": {
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    },
+    "focus_not_addressed": {
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0
+    }
+   },
+   "case_return_for_revision": {
+    "tp": 26,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "tn": 6
+   },
+   "claim_value_accuracy": {
+    "correct": 75,
+    "total": 75,
+    "rate": 1.0
+   },
+   "claim_value_accuracy_by_kind": {
+    "count": {
+     "correct": 32,
+     "total": 32,
+     "rate": 1.0
+    },
+    "amount_sum": {
+     "correct": 32,
+     "total": 32,
+     "rate": 1.0
+    },
+    "counterparty": {
+     "correct": 5,
+     "total": 5,
+     "rate": 1.0
+    },
+    "time_range": {
+     "correct": 6,
+     "total": 6,
+     "rate": 1.0
+    }
+   },
+   "claim_not_extracted": 0,
+   "partial_coverage_abstention": {
+    "correct": 7
+   },
+   "material_accuracy": {
+    "correct": 32,
+    "total": 32,
+    "rate": 1.0
+   },
+   "focus_accuracy": {
+    "correct": 42,
+    "total": 42,
+    "rate": 1.0
+   },
+   "feature_accuracy": {
+    "correct": 64,
+    "total": 64,
+    "rate": 1.0
+   },
+   "cost_cny_total": "1.27053478",
+   "cost_cny_per_case": "0.039704",
+   "model_calls_total": 191,
+   "input_tokens_total": 1233495,
+   "output_tokens_total": 169916,
+   "mean_duration_s": 27.7,
+   "usage_complete": true
+  }
+ },
+ "rows": [
+  {
+   "case_id": "heldout-01",
+   "profile": "clean",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "supported"
+   },
+   "claims_predicted": {
+    "count": "not_extracted",
+    "amount_sum": "not_extracted",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "not_checked",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {},
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {},
+   "run_status": "failed"
+  },
+  {
+   "case_id": "heldout-01",
+   "profile": "clean",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-01",
+   "profile": "clean",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-02",
+   "profile": "clean",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-02",
+   "profile": "clean",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "supported",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-02",
+   "profile": "clean",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "supported",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-03",
+   "profile": "clean",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-03",
+   "profile": "clean",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-03",
+   "profile": "clean",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-04",
+   "profile": "clean",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-04",
+   "profile": "clean",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-04",
+   "profile": "clean",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-05",
+   "profile": "count_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-05",
+   "profile": "count_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-05",
+   "profile": "count_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-06",
+   "profile": "count_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-06",
+   "profile": "count_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-06",
+   "profile": "count_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-07",
+   "profile": "count_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-07",
+   "profile": "count_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-07",
+   "profile": "count_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-08",
+   "profile": "count_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-08",
+   "profile": "count_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-08",
+   "profile": "count_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-09",
+   "profile": "amount_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-09",
+   "profile": "amount_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "supported",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-09",
+   "profile": "amount_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "supported",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-10",
+   "profile": "amount_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-10",
+   "profile": "amount_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-10",
+   "profile": "amount_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "supported",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-11",
+   "profile": "amount_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-11",
+   "profile": "amount_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "contradicted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-11",
+   "profile": "amount_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-12",
+   "profile": "amount_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-12",
+   "profile": "amount_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-12",
+   "profile": "amount_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "contradicted",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "contradicted",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-13",
+   "profile": "counterparty_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-13",
+   "profile": "counterparty_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-13",
+   "profile": "counterparty_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-14",
+   "profile": "counterparty_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-14",
+   "profile": "counterparty_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-14",
+   "profile": "counterparty_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-15",
+   "profile": "counterparty_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-15",
+   "profile": "counterparty_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-15",
+   "profile": "counterparty_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-16",
+   "profile": "counterparty_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-16",
+   "profile": "counterparty_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-16",
+   "profile": "counterparty_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "counterparty": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-17",
+   "profile": "time_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-17",
+   "profile": "time_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-17",
+   "profile": "time_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-18",
+   "profile": "time_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-18",
+   "profile": "time_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-18",
+   "profile": "time_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-19",
+   "profile": "time_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-19",
+   "profile": "time_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-19",
+   "profile": "time_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-20",
+   "profile": "time_error",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-20",
+   "profile": "time_error",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-20",
+   "profile": "time_error",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported",
+    "time_range": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "contradicted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-21",
+   "profile": "material_mismatch",
+   "method": "b0",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "mismatch",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-21",
+   "profile": "material_mismatch",
+   "method": "fixed",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-21",
+   "profile": "material_mismatch",
+   "method": "agent",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-22",
+   "profile": "material_mismatch",
+   "method": "b0",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "mismatch",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-22",
+   "profile": "material_mismatch",
+   "method": "fixed",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-22",
+   "profile": "material_mismatch",
+   "method": "agent",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-23",
+   "profile": "material_mismatch",
+   "method": "b0",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "mismatch",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-23",
+   "profile": "material_mismatch",
+   "method": "fixed",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-23",
+   "profile": "material_mismatch",
+   "method": "agent",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-24",
+   "profile": "material_mismatch",
+   "method": "b0",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "mismatch",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-24",
+   "profile": "material_mismatch",
+   "method": "fixed",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-24",
+   "profile": "material_mismatch",
+   "method": "agent",
+   "expected_issue_types": [
+    "material_mismatch"
+   ],
+   "predicted_issue_types": [
+    "material_mismatch"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "mismatch",
+   "material_predicted": "mismatch",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-25",
+   "profile": "focus_omission",
+   "method": "b0",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-25",
+   "profile": "focus_omission",
+   "method": "fixed",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "claim_error",
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-25",
+   "profile": "focus_omission",
+   "method": "agent",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "claim_error",
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "contradicted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "not_met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-26",
+   "profile": "focus_omission",
+   "method": "b0",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-26",
+   "profile": "focus_omission",
+   "method": "fixed",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-26",
+   "profile": "focus_omission",
+   "method": "agent",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-27",
+   "profile": "focus_omission",
+   "method": "b0",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-27",
+   "profile": "focus_omission",
+   "method": "fixed",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-27",
+   "profile": "focus_omission",
+   "method": "agent",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-28",
+   "profile": "focus_omission",
+   "method": "b0",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-28",
+   "profile": "focus_omission",
+   "method": "fixed",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-28",
+   "profile": "focus_omission",
+   "method": "agent",
+   "expected_issue_types": [
+    "focus_not_addressed"
+   ],
+   "predicted_issue_types": [
+    "focus_not_addressed"
+   ],
+   "claims_expected": {
+    "amount_sum": "supported",
+    "count": "supported"
+   },
+   "claims_predicted": {
+    "count": "supported",
+    "amount_sum": "supported",
+    "counterparty": "not_extracted",
+    "time_range": "supported"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "not_addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "not_met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-29",
+   "profile": "partial_coverage",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-29",
+   "profile": "partial_coverage",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "insufficient_evidence",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-29",
+   "profile": "partial_coverage",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "insufficient_evidence",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-30",
+   "profile": "partial_coverage",
+   "method": "b0",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-30",
+   "profile": "partial_coverage",
+   "method": "fixed",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "insufficient_evidence",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "insufficient_evidence",
+    "time_range": "insufficient_evidence"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-30",
+   "profile": "partial_coverage",
+   "method": "agent",
+   "expected_issue_types": [],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "insufficient_evidence",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "insufficient_evidence"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-31",
+   "profile": "partial_coverage",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-31",
+   "profile": "partial_coverage",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-31",
+   "profile": "partial_coverage",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "not_extracted"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed",
+    "focus-2": "addressed"
+   },
+   "features_expected": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "features_predicted": {
+    "F1": "met",
+    "F2": "met"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-32",
+   "profile": "partial_coverage",
+   "method": "b0",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted",
+    "time_range": "insufficient_evidence"
+   },
+   "claims_predicted": null,
+   "material_expected": "corresponds",
+   "material_predicted": null,
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": null,
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "undeterminable"
+   },
+   "features_predicted": null,
+   "run_status": "not_run"
+  },
+  {
+   "case_id": "heldout-32",
+   "profile": "partial_coverage",
+   "method": "fixed",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted",
+    "time_range": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "insufficient_evidence"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "undeterminable"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "undeterminable"
+   },
+   "run_status": "completed"
+  },
+  {
+   "case_id": "heldout-32",
+   "profile": "partial_coverage",
+   "method": "agent",
+   "expected_issue_types": [
+    "claim_error"
+   ],
+   "predicted_issue_types": [
+    "claim_error"
+   ],
+   "claims_expected": {
+    "amount_sum": "insufficient_evidence",
+    "count": "contradicted",
+    "time_range": "insufficient_evidence"
+   },
+   "claims_predicted": {
+    "count": "contradicted",
+    "amount_sum": "insufficient_evidence",
+    "counterparty": "not_extracted",
+    "time_range": "insufficient_evidence"
+   },
+   "material_expected": "corresponds",
+   "material_predicted": "corresponds",
+   "focus_expected": {
+    "focus-1": "addressed"
+   },
+   "focus_predicted": {
+    "focus-1": "addressed"
+   },
+   "features_expected": {
+    "F1": "undeterminable",
+    "F2": "undeterminable"
+   },
+   "features_predicted": {
+    "F1": "undeterminable",
+    "F2": "undeterminable"
+   },
+   "run_status": "completed"
+  }
+ ]
+}
